@@ -1,0 +1,16 @@
+Avg SR: 0.5707, Avg SPL: 0.4512, Avg success timestep: 88.1589
+Results of each scene:
+Cantwell: SR 0.4700, SPL 0.3053, Avg step 127.60
+Denmark: SR 0.9700, SPL 0.9407, Avg step 44.08
+Eastville: SR 0.5900, SPL 0.3719, Avg step 129.83
+Edgemere: SR 0.8600, SPL 0.7690, Avg step 59.77
+Elmira: SR 0.7500, SPL 0.6118, Avg step 81.83
+Eudora: SR 0.7500, SPL 0.5090, Avg step 124.55
+Greigsville: SR 0.5800, SPL 0.4480, Avg step 83.52
+Mosquito: SR 0.3400, SPL 0.2761, Avg step 88.68
+Pablo: SR 0.2500, SPL 0.2201, Avg step 63.56
+Ribera: SR 0.7200, SPL 0.5656, Avg step 89.29
+Sands: SR 0.4200, SPL 0.3429, Avg step 77.60
+Scioto: SR 0.3400, SPL 0.2362, Avg step 105.94
+Sisters: SR 0.4900, SPL 0.3903, Avg step 84.59
+Swormville: SR 0.4600, SPL 0.3304, Avg step 108.80
