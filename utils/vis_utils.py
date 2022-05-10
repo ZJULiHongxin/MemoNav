@@ -11,7 +11,7 @@ from habitat.core.logging import logger
 from habitat.core.utils import try_cv2_import
 from habitat.utils.visualizations import maps
 import cv2
-
+import matplotlib.pyplot as plt
 import scipy
 from habitat.utils.visualizations import utils
 
@@ -160,7 +160,7 @@ def observations_to_image(observation: Dict, info: Dict, mode='panoramic', local
         rgb = observation['panoramic_rgb']
         if not isinstance(rgb, np.ndarray):
             rgb = rgb.cpu().numpy()
-        rgb = cv2.putText(np.ascontiguousarray(rgb), 'current_obs',(5,10),cv2.FONT_HERSHEY_SIMPLEX,0.4,(255,255,255))
+        #rgb = cv2.putText(np.ascontiguousarray(rgb), 'current_obs',(5,10),cv2.FONT_HERSHEY_SIMPLEX,0.4,(255,255,255))
         egocentric_view.append(rgb)
 
     if "target_goal" in observation and len(observation['target_goal']) > 0:
@@ -173,7 +173,7 @@ def observations_to_image(observation: Dict, info: Dict, mode='panoramic', local
             goal_rgb = np.concatenate(np.split(goal_rgb[:,:,:,:3],goal_rgb.shape[0],axis=0),1).squeeze(axis=0)
         else:
             goal_rgb = goal_rgb[:,:,:3]
-        goal_rgb = cv2.putText(np.ascontiguousarray(goal_rgb), 'target_obs',(5,10),cv2.FONT_HERSHEY_SIMPLEX,0.4,(255,255,255))
+        #goal_rgb = cv2.putText(np.ascontiguousarray(goal_rgb), 'target_obs',(5,10),cv2.FONT_HERSHEY_SIMPLEX,0.4,(255,255,255))
         egocentric_view.append(goal_rgb.astype(np.uint8))
 
     if len(egocentric_view) > 0:
@@ -191,7 +191,8 @@ def observations_to_image(observation: Dict, info: Dict, mode='panoramic', local
     if info is not None and "top_down_map" in info:
         if info['top_down_map'] is not None:
             top_down_height = frame.shape[0] if frame is not None else info["top_down_map"]["map"].shape[0]
-            top_down_map = info["top_down_map"]["map"] # numpy.ndarray, a black-white map showing the trajectory of the agent
+            top_down_map = info["top_down_map"]["map"] # numpy.ndarray of type uint8, a 2D black-white map (HxW) showing the trajectory of the agent
+
             map_agent_pos = info["top_down_map"]["agent_map_coord"]
 
             color_top_down_map = maps.colorize_topdown_map(

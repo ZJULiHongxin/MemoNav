@@ -57,4 +57,4 @@ RL:
     num_steps: 256
     rl_pretrained: False
     il_pretrained: True
-    pretrained_weights: "data/new_checkpoints/vgm_IL/epoch0023iter20000.pt"
+    pretrained_weights: "data/new_checkpoints/vgm_EnvGlobalNode_Respawn_ExpireSpan_ILRL_v2_IL/epoch0024iter20500.pt"

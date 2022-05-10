@@ -91,7 +91,6 @@ class GraphWrapper(Wrapper):
             self.cur = 0
             self.forget_th = self.exp_config.memory.RANK_THRESHOLD
             
-
     def is_close(self, embed_a, embed_b, return_prob=False):
         with torch.no_grad():
             logits = torch.matmul(embed_a.unsqueeze(1), embed_b.unsqueeze(2)).squeeze(2).squeeze(1)
@@ -289,7 +288,53 @@ class GraphWrapper(Wrapper):
 
         return obs_batch
 
-    def forget_node(self, att_scores):
+    def forget_node(self, att_scores, num_nodes, att_type):
+        if 'gat' in att_type.lower():
+            return self.forget_node_gat(att_scores, num_nodes)
+        else:
+            return self.forget_node_transformer(att_scores, num_nodes)
+    
+    def forget_node_gat(self, att_scores, num_nodes):
+        # att_scores: B x max_num_nodes or list of att score vectors
+        
+        # num_nodes: B
+        if not self.forget: return None
+
+        self.forgetting_recorder[:] = False
+        self.forget_node_indices[:] = 1
+        # att_scores: B x 1 x num_nodes
+        #print("\n",att_scores)
+        # if self.forget_th is in (0,1), then it means the proportion of nodes that should be forgotten or kept
+        # if self.forget_th > 1, then it means how many nodes should be forgotten or kept
+        for b in range(len(att_scores)):
+            num_node = num_nodes[b].int()
+            if self.rank_type=="bottom":
+                keep_num = int(self.forget_th * num_node.item()) if self.forget_th < 1 else int(self.forget_th)
+                forget_range = torch.arange(0, keep_num)
+            elif self.rank_type=="top":
+                keep_num = int(self.forget_th * num_node.item()) if self.forget_th < 1 else int(self.forget_th) # + 1 means rounding up
+                forget_range = torch.arange(0, max(num_node - keep_num, 0))
+
+            #print(forget_range, keep_num)
+            forget_ids = torch.argsort(att_scores[b][-num_node:])[forget_range] # NOTE: att_scores may contain the score for the global node, and this score should be excluded
+
+            if len(forget_ids) == 0: continue
+            self.forgetting_recorder[b, forget_ids, self.cur] = True
+        
+        self.cur = (self.cur + 1) % self.start_to_forget
+
+        forget_node_indices = torch.nonzero(torch.all(self.forgetting_recorder, dim=2)) # number of nodes to be forgotten
+
+        # print(self.forgetting_recorder[0:2,0:10,:])
+        # input(forget_node_indices)
+        for idx in forget_node_indices:
+            self.forget_node_indices[idx[0], idx[1]] = 0 # 0 means this node will be forgotten
+        
+        return forget_node_indices
+
+    def forget_node_transformer(self, att_scores, num_nodes):
+        # att_scores: B x max_num_nodes
+        # num_nodes: B
         if not self.forget: return
 
         # att_scores: B x 1 x num_nodes
@@ -307,26 +352,24 @@ class GraphWrapper(Wrapper):
         
         forget_ids = torch.argsort(att_scores.squeeze(1), dim=1)[:,forget_range]
 
-        for b in range(att_scores.shape[0]):
+        for b in range(len(att_scores)):
             if len(forget_ids[b]) == 0: continue
             self.forgetting_recorder[b, forget_ids[b], self.cur] = True
         self.cur = (self.cur + 1) % self.start_to_forget
 
         forget_node_indices = torch.nonzero(torch.all(self.forgetting_recorder, dim=2)) # number of nodes to be forgotten
 
-        # print("\n",att_scores[:,0,0:10])
-        # print(self.forgetting_recorder[:,0:10,:])
-        # input(forget_node_indices)
+        # print("\n",att_scores[0:2,0,0:10])
+        # print(self.forgetting_recorder[0:2,0:10,:])
+        # input(forget_node_indices[0:2])
         for idx in forget_node_indices:
             self.forget_node_indices[idx[0], idx[1]] = 0 # 0 means this node will be forgotten
         #     self.forget_node_indices.add(tuple(forget_node_indices[i].tolist()))
         
-        # print(self.forgetting_recorder[0,:20])
-        # print(self.forget_node_indices)
         # 几种遗忘结点的方案：① 注意力分数绝对值低于0.2；② 注意力分数排名连续几次排在后20%；③ 连续几次；④ 累计几次
         # 连续几次排名靠后
         # self.forgetting_recorder[:,:,self.cur] = False # 清除记录，以保证连续几次不达标才会遗忘；不清除，则变为累计几次
-
+        return forget_node_indices
 
     def get_global_memory(self, mode='feature'):
         self.graph

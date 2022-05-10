@@ -45,7 +45,6 @@ class GraphConvolution(Module):
             nn.init.constant_(self.bias.data, 0.0)
 
     def forward(self, input, adj):
-
         support = torch.mm(input, self.weight)
         output = torch.spmm(adj, support)
         if self.bias is not None:

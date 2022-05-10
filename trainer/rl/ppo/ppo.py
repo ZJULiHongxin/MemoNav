@@ -160,6 +160,7 @@ class PPO(nn.Module):
 
                 self.before_backward(total_loss)
                 total_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.actor_critic.parameters(), max_norm=1.0)
                 self.after_backward(total_loss)
 
                 self.before_step()

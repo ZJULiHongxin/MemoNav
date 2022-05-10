@@ -48,7 +48,9 @@ class PPOTrainer_Memory(BaseRLTrainer):
         self.respawn_env_global_node = config.GCN.RESPAWN_GLOBAL_NODE
         self.randominit_env_global_node = config.GCN.RANDOMINIT_ENV_GLOBAL_NODE
         
+        # forgetting mechanism
         self.expire_forget = config.memory.FORGET and config.memory.FORGETTING_TYPE[0].lower() == 'e'
+        self.simple_forget = config.memory.FORGET and "simple" in config.memory.FORGETTING_TYPE and config.memory.TRAINIG_FORGET
 
         if config is not None:
             logger.info(f"config: {config}")
@@ -309,13 +311,14 @@ class PPOTrainer_Memory(BaseRLTrainer):
                 env_global_node,
                 _,
                 preds, # tuple
-                _
+                att_scores
             ) = self.actor_critic.act( # VGMPolicy.act()
                 self.last_observations,
                 self.last_recurrent_hidden_states,
                 self.last_prev_actions,
                 self.last_masks,
-                self.last_env_global_node
+                self.last_env_global_node,
+                return_features = self.simple_forget # The simple forgetting mechnism requires att scores to determine which fraction of nodes should be forgotten
             )
         pth_time += time.time() - t_sample_action
 
@@ -344,6 +347,10 @@ class PPOTrainer_Memory(BaseRLTrainer):
         acts = actions.detach().cpu().numpy().tolist()
 
         batch, rewards, dones, infos = self.envs.step(acts) # GraphWrapper.step()
+        # simple forgetting mechanism
+        if self.simple_forget:
+            self.envs.forget_node(att_scores['goal_attn'], batch['global_mask'].sum(dim=1))
+        
         #self.envs.render('human')
         env_time += time.time() - t_step_env
 

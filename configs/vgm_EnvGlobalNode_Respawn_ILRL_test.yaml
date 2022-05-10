@@ -1,4 +1,4 @@
-VERSION: GAT_EnvGlobalNode_Respawn_ILRL
+VERSION: vgm_EnvGlobalNode_Respawn_ILRL_test
 runner: 'VGMRunner'
 scene_data: 'gibson'
 BASE_TASK_CONFIG_PATH: "configs/vistargetnav_gibson.yaml"
@@ -25,18 +25,33 @@ POLICY: 'VGMPolicy'
 WRAPPER: 'GraphWrapper'
 
 GCN:
-  TYPE: "GAT"
+  TYPE: "GCN"
   WITH_ENV_GLOBAL_NODE: True
   RANDOMINIT_ENV_GLOBAL_NODE: False
   RESPAWN_GLOBAL_NODE: True
 
+  # only used for evaluation of ablation experiments
+  ENV_GLOBAL_NODE_LINK_RANGE: -1.0 # 0.2, 0.4, 0.6, 0.8, 1.0 # default to -1.0
+  RANDOM_REPLACE: True # Default to False
+
+transformer:
+  DECODE_GLOBAL_NODE: True # Default to True
+
+memory:
+  FORGET: False
+  FORGETTING_TYPE: "simple"
+  FORGETTING_ATTN: "goal" # "goal", "cur", "global_node"
+  RANK: "bottom" # "top", "bottom"
+  RANK_THRESHOLD: 0.2
+  TOLERANCE: 1
+  
 REWARD_METHOD: 'progress'
 USE_AUXILIARY_INFO: True
 
 BC:
   max_epoch: 100 # defalt to 100
   batch_size: 16
-  num_workers: 0
+  num_workers: 8
 
 RL:
   SUCCESS_REWARD: 10.0
@@ -47,4 +62,4 @@ RL:
     num_steps: 256
     rl_pretrained: True
     il_pretrained: False
-    pretrained_weights: "data/new_checkpoints/GAT_EnvGlobalNode_Respawn_ILRL_RL/ckpt6_frame1026048.pth"
+    pretrained_weights: "data/new_checkpoints/vgm_EnvGlobalNode_Respawn_ILRL_RL/ckpt34_frame6760448.pth"

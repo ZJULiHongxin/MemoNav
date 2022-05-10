@@ -35,7 +35,7 @@ USE_AUXILIARY_INFO: True
 
 BC:
   max_epoch: 100 # defalt to 100
-  batch_size: 12
+  batch_size: 16
   num_workers: 4
 
 RL:

@@ -6,8 +6,8 @@ IL_TRAINER_NAME: "BC_trainer"
 RL_TRAINER_NAME: "PPOTrainer_Memory_aux"
 ENV_NAME: "SearchEnv"
 
-SIMULATOR_GPU_ID: 1
-TORCH_GPU_ID: 7
+SIMULATOR_GPU_ID: 3
+TORCH_GPU_ID: 3
 
 NUM_PROCESSES: 4
 NUM_VAL_PROCESSES: 0
@@ -26,7 +26,7 @@ WRAPPER: 'GraphWrapper'
 
 GCN:
   TYPE: "GATv2"
-  GRAPH_NORM: 'graph_norm'
+  #GRAPH_NORM: 'graph_norm'
   WITH_ENV_GLOBAL_NODE: True
   RANDOMINIT_ENV_GLOBAL_NODE: False
   RESPAWN_GLOBAL_NODE: True
@@ -46,6 +46,6 @@ RL:
   PPO:
     num_mini_batch: 2
     num_steps: 256
-    rl_pretrained: True
-    il_pretrained: False
-    pretrained_weights: "data/new_checkpoints/GATv2_EnvGlobalNode_Respawn_ILRL_RL/ckpt.18.pth"
+    rl_pretrained: False
+    il_pretrained: True
+    pretrained_weights: "data/new_checkpoints/GATv2_EnvGlobalNode_Respawn_ILRL_v2_IL/epoch0026iter24500.pt"

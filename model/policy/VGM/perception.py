@@ -66,14 +66,14 @@ class GATv2(nn.Module):
         # NOTE: Three ways of producing edge_indices were tested:
 
         # (i) create a large all-zero tensor and copy each adj mat onto it. This is implemented as the following 4 lines
-        # big_adj = torch.zeros(B*N, B*N).to(batch_graph.device)
-        # for b in range(B):
-        #     big_adj[b*N:(b+1)*N,b*N:(b+1)*N] = adj[b]
-        # edge_indices = torch.nonzero(big_adj > 0).t()
+        big_adj = torch.zeros(B*N, B*N).to(batch_graph.device)
+        for b in range(B):
+            big_adj[b*N:(b+1)*N,b*N:(b+1)*N] = adj[b]
+        edge_indices = torch.nonzero(big_adj > 0).t()
 
         # (ii) [This method is used now] used torch.block_diag to compose all adj mats. it is implemented using "edge_indices = torch.nonzero(torch.block_diag(*adj_list) > 0).t()"
-        adj_list = [adj[b] for b in range(B)]
-        edge_indices = torch.nonzero(torch.block_diag(*adj_list) > 0).t()
+        # adj_list = [adj[b] for b in range(B)]
+        # edge_indices = torch.nonzero(torch.block_diag(*adj_list) > 0).t()
 
         # (iii) extract edge indices of each adj mat and then concatenate them. it is implemented using "edge_indices = torch.cat([torch.nonzero(adj_batch[b] > 0).t() + b*N for b in range(B)], dim=1)"
         # the running time of the three ways are compared: (ii) < (i) < (iii), which means (ii) is the fastest
@@ -86,7 +86,18 @@ class GATv2(nn.Module):
 
         att_scores = None
         if return_attention_weights: # if we need attention scores of GATv2
-            batch_output, att_scores = torch.stack(big_output[0].split(N)), big_output[1]
+            # NOTE: att_scores has a form of [a11, a21, ..., an1 | a12, a22, ..., an2, |.... | a1n, a2n, ... ann]
+            batch_output, edge_indices_and_att_scores = torch.stack(big_output[0].split(N)), big_output[1]
+            raw_att_scores = edge_indices_and_att_scores[1][:,0]
+
+            degree_mat = adj.sum(dim=2).int() # B x N
+            att_scores = []
+            for b in range(B):
+                adj_mat = degree_mat[b] # this adj matrix contains the global node and self-loops while that in obs does not
+                idxs = [0]
+                for i in range(adj_mat.shape[0] - 1):
+                    idxs.append(idxs[-1] + adj_mat[i].item())
+                att_scores.append(raw_att_scores[idxs])
         else:
             batch_output = torch.stack(big_output.split(N))
 
@@ -239,8 +250,10 @@ class GCN(nn.Module):
         """Laplacian Normalization"""
         rowsum = adj.sum(1) # adj B * M * M
         r_inv_sqrt = torch.pow(rowsum, -0.5)
+        
         r_inv_sqrt[torch.where(torch.isinf(r_inv_sqrt))] = 0.
         r_mat_inv_sqrt = torch.stack([torch.diag(k) for k in r_inv_sqrt])
+        
         return torch.matmul(torch.matmul(adj, r_mat_inv_sqrt).transpose(1,2),r_mat_inv_sqrt)
 
 
@@ -255,6 +268,13 @@ class GCN(nn.Module):
 
         x = self.dropout(F.relu(self.gc1(big_graph,big_adj)))
         x = self.dropout(F.relu(self.gc2(x,big_adj)))
+        
+        big_output = self.gc3(x, big_adj)
+
+        big_adj[:] = 0.
+        x = self.dropout(F.relu(self.gc1(big_graph,big_adj)))
+        x = self.dropout(F.relu(self.gc2(x,big_adj)))
+        
         big_output = self.gc3(x, big_adj)
 
         batch_output = torch.stack(big_output.split(N))
@@ -467,7 +487,7 @@ class Perception(nn.Module):
         #     self.with_env_global_node = False
         
         self.forget = cfg.memory.FORGET
-        input(self.forget)
+
         forget_type_dict = {
             'simple': 0,
             'expire': 1
@@ -482,7 +502,7 @@ class Perception(nn.Module):
         self.forget_mask, self.remaining_span = None, None
 
         self.with_transformer = "trans" in cfg.FUSION_TYPE
-        input(self.with_transformer)
+
         if self.with_transformer:
             self.goal_Decoder = Attblock(cfg.transformer.hidden_dim,
                                         cfg.transformer.nheads, # default to 4
@@ -495,6 +515,10 @@ class Perception(nn.Module):
 
         self.output_size = feature_dim
 
+        # Flags used for ablation study
+        self.decode_global_node = cfg.transformer.DECODE_GLOBAL_NODE
+        self.link_fraction = cfg.GCN.ENV_GLOBAL_NODE_LINK_RANGE
+        self.random_replace = cfg.GCN.RANDOM_REPLACE
 
     def get_memory_span(self):
         return self.forget_mask, self.remaining_span, self.max_span
@@ -545,11 +569,28 @@ class Perception(nn.Module):
         #t1 = time()
         if env_global_node is not None: # GATv2: this block takes 0.0002s
             batch_size, A_dtype = global_A.shape[0], global_A.dtype
+
             global_memory_with_goal = torch.cat([env_global_node, global_memory_with_goal], dim=1)
 
-            global_A = torch.cat([torch.ones(batch_size, 1, max_node_num, dtype=A_dtype, device=device), global_A], dim=1)
-            global_A = torch.cat([torch.ones(batch_size, max_node_num + 1, 1, dtype=A_dtype, device=device), global_A], dim=2)
-            global_mask = torch.cat([torch.ones(batch_size, 1, dtype=global_mask.dtype, device=device), global_mask], dim=1) # B x (max_num_node+1)
+            if self.link_fraction != -1:
+                add_row = torch.zeros(1, 1, max_node_num, dtype=A_dtype, device=device)
+                link_number = max(1, int(self.link_fraction * max_node_num)) # round up
+                #link_number = int(self.link_fraction)
+                add_row[0,0,-link_number:] = 1.0
+
+                add_col = torch.zeros(1, max_node_num + 1, 1, dtype=A_dtype, device=device)
+                add_col[0,-link_number:,0] = 1.0
+                add_col[0,0,0] = 1.0
+
+                global_A = torch.cat([add_row, global_A], dim=1)
+                global_A = torch.cat([add_col, global_A], dim=2)
+                
+            else:
+                global_A = torch.cat([torch.ones(batch_size, 1, max_node_num, dtype=A_dtype, device=device), global_A], dim=1)
+                global_A = torch.cat([torch.ones(batch_size, max_node_num + 1, 1, dtype=A_dtype, device=device), global_A], dim=2)
+            
+            if self.decode_global_node: 
+                global_mask = torch.cat([torch.ones(batch_size, 1, dtype=global_mask.dtype, device=device), global_mask], dim=1) # B x (max_num_node+1)
 
         #print("Preparation time {:.4f}s".format(time()- t1))
 
@@ -559,7 +600,7 @@ class Perception(nn.Module):
         # GATv2: 0.0025s at least and 0.0163s at most
         # GCN: takes 0.0006s at least and 0.0011s at most
         GCN_results = self.global_GCN(global_memory_with_goal, global_A, return_features) # 4 1 512
-
+        
         #print("GCN forward time {:.4f}s".format(time()- t1))
         # GAT_attn is a tuple: (edge_index, alpha)
         GAT_attn = None
@@ -575,8 +616,17 @@ class Perception(nn.Module):
             #t1 = time()
             # embedding takes 0.0003s
             if env_global_node is not None: 
-                new_env_global_node = global_context[:,0:1] # save the global node features for next time's use
-                global_context = torch.cat([new_env_global_node, self.time_embedding(global_context[:,1:], relative_time)], dim=1)
+                if self.random_replace:
+                    random_idx = torch.randint(low=1, high=max_node_num+1, size=(1,))
+                    new_env_global_node = global_context[:,random_idx:random_idx+1]
+                else:
+                    new_env_global_node = global_context[:,0:1] # save the global node features for next time's use
+
+                # the global node along with all nodes act as keys and values
+                if self.decode_global_node:
+                    global_context = torch.cat([new_env_global_node, self.time_embedding(global_context[:,1:], relative_time)], dim=1)
+                else:
+                    global_context = self.time_embedding(global_context[:,1:], relative_time)
             else:
                 global_context = self.time_embedding(global_context, relative_time)
             #print("embedding time {:.4f}s".format(time()- t1))
@@ -584,8 +634,8 @@ class Perception(nn.Module):
             
             #t1 = time()
             # the two decoding processes take 0.0018s at least and 0.0037 at most
+            
             goal_context, goal_attn = self.goal_Decoder(goal_embedding.unsqueeze(1), global_context, global_mask)
-
             #print(global_context[0].shape, global_mask[0], goal_attn[0], );input()
             curr_context, curr_attn = self.curr_Decoder(curr_embedding.unsqueeze(1), global_context, global_mask)
             #print("decoder time {:.4f}s".format(time()- t1))
@@ -598,11 +648,12 @@ class Perception(nn.Module):
             curr_context = curr_embedding
             goal_context = goal_embedding
 
-        print(new_env_global_node[:,0,0:15])
+        # print(new_env_global_node[0:2,0,0:10])
         return curr_context.squeeze(1), goal_context.squeeze(1), new_env_global_node, \
             {'goal_attn': goal_attn if self.with_transformer else None,
             'curr_attn': curr_attn if self.with_transformer else None,
-            'GAT_attn': GAT_attn[1][:,0] if GAT_attn is not None else None} if return_features else None
+            'GAT_attn': GAT_attn if GAT_attn is not None else None,
+            'Adj_mat': global_A} if return_features else None
 
 class GATPerception(nn.Module):
     def __init__(self,cfg):
@@ -715,6 +766,7 @@ class GATPerception(nn.Module):
             for idx in forget_idxs:
                 global_A[idx[0], idx[1], :] = 0
                 global_A[idx[0], :, idx[1]] = 0
+
             # for idx in observations['forget_mask']:
             #     global_mask[idx[0], -max_node_num + idx[1]] = 0 # this is suitable for models with or without env global nodes
 
@@ -768,4 +820,5 @@ class GATPerception(nn.Module):
         return curr_context.squeeze(1), goal_context.squeeze(1), new_env_global_node, \
             {'goal_attn': goal_attn if self.with_transformer else None,
             'curr_attn': curr_attn if self.with_transformer and not self.wo_cur_decoder else None,
-            'GAT_attn': GAT_attn[1][:,0] if GAT_attn is not None else None} if return_features else None
+            'GAT_attn': GAT_attn if GAT_attn is not None else None,
+            'Adj_mat': global_A} if return_features else None

@@ -1,5 +1,3 @@
-from operator import indexOf
-from pprint import pprint
 import torch
 import torch.nn as nn
 from model.rnn_state_encoder import RNNStateEncoder
@@ -83,8 +81,6 @@ class VGMPolicy(nn.Module):
         
         # The shape of the output should be B * N * (shapes)
         return value, action, action_log_probs, rnn_hidden_states, new_env_global_node, x, preds, ffeatures if return_features else None
-
-
 
     def get_value(self, observations, rnn_hidden_states, env_global_node, prev_actions, masks):
         """
@@ -323,7 +319,7 @@ class VGMNet(nn.Module):
         curr_context, goal_context, new_env_global_node, ffeatures = self.perception_unit(observations, env_global_node,
                                                                      return_features=return_features)
         
-        if self.fusion_type == 0:
+        if self.fusion_type == 0: # "transformer" or "transformer_wo_curobs_decoder"
             contexts = torch.cat((curr_context, goal_context), -1)
             feats = self.visual_fc(torch.cat((contexts, observations['curr_embedding']), 1))
             pred1 = self.pred_aux1(curr_context)

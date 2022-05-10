@@ -75,11 +75,12 @@ _C.GCN.TYPE = "GCN" # "GAT", "GATv2"
 _C.GCN.GRAPH_NORM = "" # "graph_norm"
 _C.GCN.NUM_LAYERS = 3
 _C.GCN.WITH_ENV_GLOBAL_NODE = False
-#_C.GCN.ENV_GLOBAL_NODE_INIT_TYPE = "zero" # "random", "goal"
+
 _C.GCN.RANDOMINIT_ENV_GLOBAL_NODE = False # if false, initialize the env global node as a zero vector
 _C.GCN.WITH_CUROBS_GLOBAL_NODE = False
 _C.GCN.RESPAWN_GLOBAL_NODE = False # whether or not initialize all global nodes as zero vectors whenever a new navigation episode starts
-
+_C.GCN.ENV_GLOBAL_NODE_LINK_RANGE = -1.0 # How many nodes the global node link to. -1 means disabled. This variable is only used for ablation study. 
+_C.GCN.RANDOM_REPLACE = False
 # Fusion method
 _C.FUSION_TYPE = "transformer" # or "two_branch", "one_branch", "transformer_wo_curobs_decoder" MLP
 # Transformer
@@ -93,6 +94,7 @@ _C.transformer.dec_layers = 1
 _C.transformer.pre_norm = False
 _C.transformer.num_queries = 1
 
+_C.transformer.DECODE_GLOBAL_NODE = True # Whether or not add the global node to the keys and values. This varibale is used for ablationW
 # for memory module
 _C.memory = CN()
 _C.memory.embedding_size = 512
@@ -100,8 +102,9 @@ _C.memory.memory_size = 100 # maximum number of nodes
 _C.memory.pose_dim = 5
 _C.memory.need_local_memory = False
 _C.memory.FORGET = False # NOTE: innovation 2
+_C.memory.FORGETTING_ATTN = "goal" # ["cur", "global_node"]
 _C.memory.FORGETTING_TYPE = "simple" # ["Expire"]
-
+_C.memory.TRAINIG_FORGET = False # use the forgetting mechanism in evaluation, not in training
 # For Expire-span
 _C.memory.EXPIRE_INIT_PERCENTAGE = 0.1
 _C.memory.MAX_SPAN = 32
@@ -204,7 +207,9 @@ def get_config(
         for config_path in config_paths:
             config.merge_from_file(config_path)
 
-    config.TASK_CONFIG = get_task_config(base_task_config_path if base_task_config_path else config.BASE_TASK_CONFIG_PATH)
+    if base_task_config_path:
+        config.BASE_TASK_CONFIG_PATH = base_task_config_path
+    config.TASK_CONFIG = get_task_config(config.BASE_TASK_CONFIG_PATH)
     #if opts:
     #    config.CMD_TRAILING_OPTS = opts
     #    config.merge_from_list(opts)

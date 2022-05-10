@@ -30,7 +30,8 @@ GCN:
 memory:
   FORGET: False
   FORGETTING_TYPE: "simple"
-  RANK: "top"
+  FORGETTING_ATTN: "goal" # "goal", "cur", "global_node"
+  RANK: "bottom" # "top", "bottom"
   RANK_THRESHOLD: 0.2
   TOLERANCE: 1
 

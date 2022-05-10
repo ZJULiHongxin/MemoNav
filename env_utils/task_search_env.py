@@ -1,7 +1,11 @@
+from ipaddress import collapse_addresses
 from operator import mod
+from tkinter.messagebox import NO
 from typing import Optional, Type
 from habitat import Config, Dataset
 import cv2
+import matplotlib
+import matplotlib.pyplot as plt
 from utils.vis_utils import observations_to_image, append_text_to_image
 from gym.spaces.dict import Dict as SpaceDict
 from gym.spaces.box import Box
@@ -142,8 +146,12 @@ class SearchEnv(RLEnv):
             self.habitat_env.MIN_DIST, self.habitat_env.MAX_DIST = 5.0, 10.0
         elif config.DIFFICULTY == 'random':
             self.habitat_env.MIN_DIST, self.habitat_env.MAX_DIST = 1.5, 10.0
-        elif config.DIFFICULTY == 'multi':
-            self.habitat_env.MIN_DIST, self.habitat_env.MAX_DIST = 5.0, 10.0
+        elif config.DIFFICULTY == '2goal':
+            self.habitat_env.MIN_DIST, self.habitat_env.MAX_DIST = 10.0, 15.0
+        elif config.DIFFICULTY == '3goal':
+            self.habitat_env.MIN_DIST, self.habitat_env.MAX_DIST = 15.0, 25.0
+        elif config.DIFFICULTY == '4goal':
+            self.habitat_env.MIN_DIST, self.habitat_env.MAX_DIST = 20.0, 40.0
         else:
             raise NotImplementedError
         print('[SearchEnv] Current difficulty %s, MIN_DIST %f, MAX_DIST %f - # goals %d'%(config.DIFFICULTY, self.habitat_env.MIN_DIST, self.habitat_env.MAX_DIST, self.habitat_env._num_goals))
@@ -372,18 +380,43 @@ class SearchEnv(RLEnv):
         self.meters_per_pixel = maps.calculate_meters_per_pixel(self.map_res, self.habitat_env.sim, self.habitat_env.sim.pathfinder) 
         self.recolor_map = np.array([[255, 255, 255], [128, 128, 128], [0, 0, 0]], dtype=np.uint8)
         node_side = self.map_res // 16
+        self.node_side = node_side
         self.square = np.tile(np.array([[[255,0,0]]], dtype=np.uint8), (node_side, node_side, 1))
         self.target_square = np.tile(np.array([[[0,240,0]]], dtype=np.uint8), (node_side, node_side, 1)) 
-    
-    def render(self, mode='rgb', waypoint_pose=None, att_features=None, imshow=False):
+        self.cmap = matplotlib.cm.get_cmap("rainbow")
+    #def draw_traj(self, map,):
+
+    def render1(self, mode='rgb', waypoint_pose=None, att_features=None, forget_node_indices=None, imshow=False):
         # waypoint_pose: a list of waypoint xyz coords
-        # att_features: the att scores of the last GATv2 layer; size: 1 x num_nodes
+        # att_features: the att scores of the last GATv2 layer; size: num_nodes
+        # forget_node_indices: 
         info = self.get_info(None) if self.info is None else self.info # ['distance_to_goal', 'success', 'spl', 'collisions', 'top_down_map']
-        img = observations_to_image(self.obs, info, mode='panoramic')
+        
+        # img = info["top_down_map"]["map"]
+        # img = maps.colorize_topdown_map(
+        #         img, info["top_down_map"]["fog_of_war_mask"]
+        #     )
+        img = maps.get_topdown_map(self.habitat_env.sim.pathfinder, height=self.positions[0][1], meters_per_pixel=self.meters_per_pixel)
+        img = self.recolor_map[img]
+        #img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        if len(self.positions) > 5:
+            map_pos = [self.obs['target_pose']]
+            map_pos.extend(self.positions)
+            traj_points = self.convert_points_to_topdown(self.habitat_env.sim.pathfinder, map_pos, self.meters_per_pixel)
+            target_pos, traj_points = traj_points[0], traj_points[1:]
+            for pos_id in range(1, len(traj_points)):
+                color = tuple(map(lambda x: int(255 * x), self.cmap((pos_id + 1) / len(traj_points))[0:3]))
+                cv2.line(img,
+                        (traj_points[pos_id-1][1], traj_points[pos_id-1][0]),
+                        (traj_points[pos_id][1], traj_points[pos_id][0]),
+                        color=color,
+                        thickness = 2)
+        
+            utils.paste_overlapping_image(img, self.target_square  // self.num_goals * (self.curr_goal_idx+1), (target_pos[0], target_pos[1]))
         
         top_down_map = None
         if att_features is not None:
-            top_down_map = maps.get_topdown_map(self.habitat_env.sim.pathfinder, height=waypoint_pose[0][1], meters_per_pixel=self.meters_per_pixel)
+            top_down_map = maps.get_topdown_map(self.habitat_env.sim.pathfinder, height=waypoint_pose[0][1], meters_per_pixel=self.meters_per_pixel) # uint8 numpy array
             top_down_map = self.recolor_map[top_down_map]
 
              # create a colored square of size side x side x 3
@@ -391,6 +424,8 @@ class SearchEnv(RLEnv):
             xy_vis_points = self.convert_points_to_topdown(self.habitat_env.sim.pathfinder, waypoint_pose, self.meters_per_pixel)
             waypoint_pose.pop(-1)
             xy_vis_points, target_point = xy_vis_points[:-1], xy_vis_points[-1]
+
+            # if att_features.shape[0] == len(waypoint_pose): # without global node
             att_features = att_features[-len(waypoint_pose):] # the attention scores of (i) the env global node, or (ii) goal emb or (iii) cur emb to all waypoints
             if len(waypoint_pose) > 1:
                 att_features = (att_features - att_features.min()) / (att_features.max() - att_features.min())
@@ -405,11 +440,92 @@ class SearchEnv(RLEnv):
                 #         lineType=cv2.LINE_AA,)
                 utils.paste_overlapping_image(top_down_map, (self.square * att_features[i].item()).astype(np.uint8), (xy_vis_points[i][0], xy_vis_points[i][1]))
             
-            cv2.arrowedLine(top_down_map, (xy_vis_points[-1][1], xy_vis_points[-1][0] - 20), (xy_vis_points[-1][1], xy_vis_points[-1][0]), (0,0,255))
+            if forget_node_indices is not None:
+                half_side = self.node_side // 2 + 1
+                for idx in forget_node_indices:
+                    u, v = xy_vis_points[idx[1]][0], xy_vis_points[idx[1]][1]
+                    cv2.rectangle(top_down_map, (v - half_side, u - half_side), (v + half_side, u + half_side), (0,0,255), 1)
+                
+            # elif att_features.shape[0] > len(waypoint_pose): # with global node
+            #     att_features = (att_features - att_features.min()) / (att_features.max() - att_features.min())
+
+            #     for i in range(len(waypoint_pose)):
+            #         utils.paste_overlapping_image(top_down_map, (self.square * att_features[i+1].item()).astype(np.uint8), (xy_vis_points[i][0], xy_vis_points[i][1]))
+                
+            #     utils.paste_overlapping_image(top_down_map, (self.square * att_features[0].item()).astype(np.uint8), (0, top_down_map.shape[0] //2))
+
+            cv2.arrowedLine(top_down_map, (xy_vis_points[-1][1], xy_vis_points[-1][0] - 20), (xy_vis_points[-1][1], xy_vis_points[-1][0]), (0,0,255), tipLength=0.3)
             utils.paste_overlapping_image(top_down_map, self.target_square  // self.num_goals * (self.curr_goal_idx+1), (target_point[0], target_point[1]))
 
             maps.draw_path(top_down_map, xy_vis_points)
+
+        #if mode == 'rgb' or mode == 'rgb_array':
+            #return img
+            
+        if imshow:
+            cv2.imshow('render', img[:,:,::-1])
+            if waypoint_pose is not None:
+                cv2.imshow('top_down_map', top_down_map[:,:,::-1])
+            # if attn_img is not None:
+            #     cv2.imshow('attn', attn_img[:,:,::-1])
+            cv2.waitKey(1)
+            #return img
+        return img, top_down_map
+        #return super().render(mode)
+
+    def render(self, mode='rgb', waypoint_pose=None, att_features=None, forget_node_indices=None, imshow=False):
+        # waypoint_pose: a list of waypoint xyz coords
+        # att_features: the att scores of the last GATv2 layer; size: num_nodes
+        # forget_node_indices: 
+        info = self.get_info(None) if self.info is None else self.info # ['distance_to_goal', 'success', 'spl', 'collisions', 'top_down_map']
+
+        img = observations_to_image(self.obs, info, mode='panoramic')
         
+        top_down_map = None
+        if att_features is not None:
+            top_down_map = maps.get_topdown_map(self.habitat_env.sim.pathfinder, height=waypoint_pose[0][1], meters_per_pixel=self.meters_per_pixel)
+            top_down_map = self.recolor_map[top_down_map]
+
+             # create a colored square of size side x side x 3
+            waypoint_pose.append(self.obs['target_pose'])
+            xy_vis_points = self.convert_points_to_topdown(self.habitat_env.sim.pathfinder, waypoint_pose, self.meters_per_pixel)
+            waypoint_pose.pop(-1)
+            xy_vis_points, target_point = xy_vis_points[:-1], xy_vis_points[-1]
+
+            # if att_features.shape[0] == len(waypoint_pose): # without global node
+            att_features = att_features[-len(waypoint_pose):] # the attention scores of (i) the env global node, or (ii) goal emb or (iii) cur emb to all waypoints
+            if len(waypoint_pose) > 1:
+                att_features = (att_features - att_features.min()) / (att_features.max() - att_features.min())
+
+            #print(top_down_map.shape, '\n', xy_vis_points,'\n', att_features,'\n')
+            for i in range(len(waypoint_pose)):
+                # cv2.putText(img=top_down_map, text='{:.3f}'.format(att_features[i].item()), org=(xy_vis_points[i][1], xy_vis_points[i][0]), \
+                #         fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                #         fontScale= min(top_down_map.shape) // 3,
+                #         color=(0, 0, 0),
+                #         thickness=1,
+                #         lineType=cv2.LINE_AA,)
+                utils.paste_overlapping_image(top_down_map, (self.square * att_features[i].item()).astype(np.uint8), (xy_vis_points[i][0], xy_vis_points[i][1]))
+            
+            if forget_node_indices is not None:
+                half_side = self.node_side // 2 + 1
+                for idx in forget_node_indices:
+                    u, v = xy_vis_points[idx[1]][0], xy_vis_points[idx[1]][1]
+                    cv2.rectangle(top_down_map, (v - half_side, u - half_side), (v + half_side, u + half_side), (0,0,255), 1)
+                
+            # elif att_features.shape[0] > len(waypoint_pose): # with global node
+            #     att_features = (att_features - att_features.min()) / (att_features.max() - att_features.min())
+
+            #     for i in range(len(waypoint_pose)):
+            #         utils.paste_overlapping_image(top_down_map, (self.square * att_features[i+1].item()).astype(np.uint8), (xy_vis_points[i][0], xy_vis_points[i][1]))
+                
+            #     utils.paste_overlapping_image(top_down_map, (self.square * att_features[0].item()).astype(np.uint8), (0, top_down_map.shape[0] //2))
+
+            cv2.arrowedLine(top_down_map, (xy_vis_points[-1][1], xy_vis_points[-1][0] - 20), (xy_vis_points[-1][1], xy_vis_points[-1][0]), (0,0,255), tipLength=0.3)
+            utils.paste_overlapping_image(top_down_map, self.target_square  // self.num_goals * (self.curr_goal_idx+1), (target_point[0], target_point[1]))
+
+            maps.draw_path(top_down_map, xy_vis_points)
+                
         str_action = 'XX'
         if 'STOP' not in self.habitat_env.task.actions:
             action_list = ["MF", 'TL', 'TR']

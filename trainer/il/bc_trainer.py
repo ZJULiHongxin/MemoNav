@@ -20,6 +20,7 @@ class BC_trainer(nn.Module):
             list(filter(lambda p: p.requires_grad,self.agent.parameters())),
             lr=cfg.BC.lr
         )
+
         self.localize_mode = 'pred'
         self.config = cfg
         self.env_setup_done = False
@@ -147,6 +148,7 @@ class BC_trainer(nn.Module):
         if train:
             self.optim.zero_grad()
             total_loss.backward()
+
             self.optim.step()
 
         loss_dict = {}
