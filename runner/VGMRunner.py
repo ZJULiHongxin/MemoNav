@@ -1,3 +1,4 @@
+from tkinter.messagebox import NO
 from runner.base_runner import BaseRunner
 import torch
 import time
@@ -159,11 +160,12 @@ class VGMRunner(BaseRunner):
         # log_str = have_been_str + ' ' + pred_dist_str
         # self.env.log_info(log_type='str', info=log_str)
         self.hidden_states = hidden_states
+        LTM_dist = torch.norm(new_env_global_node-self.env_global_node).item() if new_env_global_node is not None else None
         self.env_global_node = new_env_global_node
         self.actions = actions # store the previous action
         self.time_t += 1
 
-        return self.actions.item(), att_features, decision_time
+        return self.actions.item(), att_features, decision_time, actions_logits, LTM_dist
 
     def visualize(self, env_img):
         return NotImplementedError

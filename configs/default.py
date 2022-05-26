@@ -94,7 +94,8 @@ _C.transformer.dec_layers = 1
 _C.transformer.pre_norm = False
 _C.transformer.num_queries = 1
 
-_C.transformer.DECODE_GLOBAL_NODE = True # Whether or not add the global node to the keys and values. This varibale is used for ablationW
+_C.transformer.DECODE_GLOBAL_NODE = True # Whether or not to add the global node to the keys and values. This varibale is used for ablation
+
 # for memory module
 _C.memory = CN()
 _C.memory.embedding_size = 512
@@ -115,6 +116,7 @@ _C.memory.EXPIRE_LOSS_COEF = 5e-6
 _C.memory.TOLERANCE = 10 # implement forgetting mechanism after TOLERANCE nodes have been created
 _C.memory.RANK = "bottom" # or "top"
 _C.memory.RANK_THRESHOLD = 0.2 # nodes whose att-scores remain in the bottom for several consecutive steps will be forgotten 
+_C.memory.RANDOM_SELECT = False # Whether or not add to randomly select graph nodes. This varibale is used for ablation
 
 _C.saving = CN()
 _C.saving.name = 'test'

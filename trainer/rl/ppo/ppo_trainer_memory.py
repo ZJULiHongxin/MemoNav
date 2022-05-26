@@ -51,6 +51,11 @@ class PPOTrainer_Memory(BaseRLTrainer):
         # forgetting mechanism
         self.expire_forget = config.memory.FORGET and config.memory.FORGETTING_TYPE[0].lower() == 'e'
         self.simple_forget = config.memory.FORGET and "simple" in config.memory.FORGETTING_TYPE and config.memory.TRAINIG_FORGET
+        self.att_type = "goal_attn"
+        if "cur" in config.memory.FORGETTING_ATTN.lower():
+            self.att_type = "curr_attn"
+        elif "global" in config.memory.FORGETTING_ATTN.lower() or "gat" in config.memory.FORGETTING_ATTN.lower():
+            self.att_type = "GAT_attn"
 
         if config is not None:
             logger.info(f"config: {config}")
@@ -349,7 +354,7 @@ class PPOTrainer_Memory(BaseRLTrainer):
         batch, rewards, dones, infos = self.envs.step(acts) # GraphWrapper.step()
         # simple forgetting mechanism
         if self.simple_forget:
-            self.envs.forget_node(att_scores['goal_attn'], batch['global_mask'].sum(dim=1))
+            self.envs.forget_node(att_scores[self.att_type], batch['global_mask'].sum(dim=1), att_type=self.att_type)
         
         #self.envs.render('human')
         env_time += time.time() - t_step_env

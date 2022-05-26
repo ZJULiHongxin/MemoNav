@@ -79,8 +79,11 @@ class VGMPolicy(nn.Module):
 
         action_log_probs = distribution.log_probs(action)
         
+        # NOTE: delete this line
+        distribution_entropy = distribution.entropy().mean()
         # The shape of the output should be B * N * (shapes)
-        return value, action, action_log_probs, rnn_hidden_states, new_env_global_node, x, preds, ffeatures if return_features else None
+        # NOTE: change distribution_entropy to x
+        return value, action, action_log_probs, rnn_hidden_states, new_env_global_node, distribution_entropy, preds, ffeatures if return_features else None
 
     def get_value(self, observations, rnn_hidden_states, env_global_node, prev_actions, masks):
         """
@@ -88,7 +91,7 @@ class VGMPolicy(nn.Module):
         """
         # features is the logits of action candidates
         features, *_ = self.net(
-            observations, rnn_hidden_states, prev_actions, masks, env_global_node
+            observations, rnn_hidden_states, prev_actions, masks, env_global_node, disable_forgetting=True
         )
         value = self.critic(features)
         return value
@@ -97,7 +100,7 @@ class VGMPolicy(nn.Module):
             self, observations, rnn_hidden_states, env_global_node, prev_actions, masks, action
     ):
         features, rnn_hidden_states, preds, env_global_node, _ = self.net(
-            observations, rnn_hidden_states, prev_actions, masks, env_global_node
+            observations, rnn_hidden_states, prev_actions, masks, env_global_node, disable_forgetting=True
         )
         distribution, x = self.action_distribution(features)
         value = self.critic(features)
@@ -299,7 +302,7 @@ class VGMNet(nn.Module):
                 min = i.min()
         return min, max
     
-    def forward(self, observations, rnn_hidden_states, prev_actions, masks, env_global_node, mode='', return_features=False):
+    def forward(self, observations, rnn_hidden_states, prev_actions, masks, env_global_node, mode='', return_features=False, disable_forgetting=False):
         prev_actions = self.prev_action_embedding(
             ((prev_actions.float() + 1) * masks).long().squeeze(-1)
         )
@@ -317,7 +320,7 @@ class VGMNet(nn.Module):
         # new_env_global_node: B x 1 x 512
         #print(env_global_node[0:4,0,0:10])
         curr_context, goal_context, new_env_global_node, ffeatures = self.perception_unit(observations, env_global_node,
-                                                                     return_features=return_features)
+                                                                     return_features=return_features, disable_forgetting=disable_forgetting)
         
         if self.fusion_type == 0: # "transformer" or "transformer_wo_curobs_decoder"
             contexts = torch.cat((curr_context, goal_context), -1)

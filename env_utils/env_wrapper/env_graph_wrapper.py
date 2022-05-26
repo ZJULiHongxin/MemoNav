@@ -333,25 +333,77 @@ class GraphWrapper(Wrapper):
         return forget_node_indices
 
     def forget_node_transformer(self, att_scores, num_nodes):
-        # att_scores: B x max_num_nodes
-        # num_nodes: B
+        # NOTE: This method only supports single-batch input
+        # att_scores: B(1) x max_num_nodes      it may contain the score of the global node
+        # num_nodes: B(1)
         if not self.forget: return
+        #print('\n',att_scores)
+        B = att_scores.shape[0]
+        for b in range(B):
+            num_node = num_nodes[b].int()
+            att_scores_b = att_scores[b, -num_node:]
 
+        #print(att_scores)
         # att_scores: B x 1 x num_nodes
 
         # if self.forget_th is in (0,1), then it means the proportion of nodes that should be forgotten or kept
         # if self.forget_th > 1, then it means how many nodes should be forgotten or kept
-        num_nodes = att_scores.shape[-1]
+        # num_nodes = att_scores.shape[-1]
+            if self.rank_type=="bottom":
+                keep_num = int(self.forget_th * num_node) if self.forget_th < 1 else int(self.forget_th)
+                forget_range = torch.arange(0, keep_num)
+            elif self.rank_type=="top":
+                keep_num = int(self.forget_th * num_node) + 1 if self.forget_th < 1 else int(self.forget_th) # + 1 means rounding up
+                forget_range = torch.arange(0, max(num_node - keep_num, 0))
+
+            # print('keep_num', keep_num)
+            # print('forget_range',att_scores_b.shape, forget_range)
+            forget_ids = torch.argsort(att_scores_b, dim=0)[forget_range]
+            # print('forget_ids',forget_ids)
+
+            if len(forget_ids) == 0: continue
+            self.forgetting_recorder[b, forget_ids, self.cur] = True
+            self.cur = (self.cur + 1) % self.start_to_forget
+
+        forget_node_indices = torch.nonzero(torch.all(self.forgetting_recorder, dim=2)) # number of nodes to be forgotten
+
+        # print("\n",att_scores[0:2,0,0:10])
+        # print(self.forgetting_recorder[0:2,0:10,:])
+        # input(forget_node_indices[0:2])
+        for idx in forget_node_indices:
+            self.forget_node_indices[idx[0], idx[1]] = 0 # 0 means this node will be forgotten
+        #     self.forget_node_indices.add(tuple(forget_node_indices[i].tolist()))
+        
+        # 几种遗忘结点的方案：① 注意力分数绝对值低于0.2；② 注意力分数排名连续几次排在后20%；③ 连续几次；④ 累计几次
+        # 连续几次排名靠后
+        # self.forgetting_recorder[:,:,self.cur] = False # 清除记录，以保证连续几次不达标才会遗忘；不清除，则变为累计几次
+        return forget_node_indices
+    
+    def forget_node_transformer1(self, att_scores, num_nodes):
+        # NOTE: This method only supports single-batch input
+        # att_scores: B(1) x max_num_nodes      it may contain the score of the global node
+        # num_nodes: B(1)
+        if not self.forget: return
+        
+        num_nodes = num_nodes.squeeze().int()
+        #print('\n',att_scores)
+        att_scores = att_scores.squeeze(0)[-num_nodes:]
+        #print(att_scores)
+        # att_scores: B x 1 x num_nodes
+
+        # if self.forget_th is in (0,1), then it means the proportion of nodes that should be forgotten or kept
+        # if self.forget_th > 1, then it means how many nodes should be forgotten or kept
+        # num_nodes = att_scores.shape[-1]
 
         if self.rank_type=="bottom":
             keep_num = int(self.forget_th * num_nodes) if self.forget_th < 1 else int(self.forget_th)
-            forget_range = torch.arange(0, keep_num)
+            forget_range = torch.arange(-num_nodes, -num_nodes+keep_num)
         elif self.rank_type=="top":
             keep_num = int(self.forget_th * num_nodes) + 1 if self.forget_th < 1 else int(self.forget_th) # + 1 means rounding up
-            forget_range = torch.arange(0, max(num_nodes - keep_num, 0))
-        
-        forget_ids = torch.argsort(att_scores.squeeze(1), dim=1)[:,forget_range]
-
+            forget_range = torch.arange(-num_nodes, -num_nodes+max(num_nodes - keep_num, 0))
+        #print('num_nodes',num_nodes)
+        forget_ids = torch.argsort(att_scores, dim=1)[:,forget_range]
+        #print('forget_ids',forget_ids)
         for b in range(len(att_scores)):
             if len(forget_ids[b]) == 0: continue
             self.forgetting_recorder[b, forget_ids[b], self.cur] = True

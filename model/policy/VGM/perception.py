@@ -519,12 +519,15 @@ class Perception(nn.Module):
         self.decode_global_node = cfg.transformer.DECODE_GLOBAL_NODE
         self.link_fraction = cfg.GCN.ENV_GLOBAL_NODE_LINK_RANGE
         self.random_replace = cfg.GCN.RANDOM_REPLACE
+        self.random_select = cfg.memory.RANDOM_SELECT
+        self.forget_rank = cfg.memory.RANK_THRESHOLD
 
     def get_memory_span(self):
         return self.forget_mask, self.remaining_span, self.max_span
     
-    def forward(self, observations, env_global_node, return_features=False): # without memory
+    def forward(self, observations, env_global_node, return_features=False, disable_forgetting=False): # without memory
         # env_global_node: b x 1 x 512
+        # forgetting mechanism is enabled only when collecting trajectories and it is disabled when evaluating actions
         B = observations['global_mask'].shape[0]
         max_node_num = observations['global_mask'].sum(dim=1).max().long() # this indicates that the elements in global_mask denotes the existence of nodes
 
@@ -547,15 +550,23 @@ class Perception(nn.Module):
         global_memory_with_goal = self.feature_embedding(torch.cat((global_memory[:,:max_node_num], goal_embedding.unsqueeze(1).repeat(1,max_node_num,1)),-1))
 
         # goal_attn: B x output_seq_len (1) x input_seq_len (num_nodes). NOTE: the att maps of all heads are averaged
-        if self.forget:
-            if self.forget_type == 0: # simple forgetting mechanism
-                forget_mask = observations['forget_mask'][:,:max_node_num] # its elements are either 1 or 0. 0 means being forgotten
-                
-            elif self.forget_type == 1: # expiring forgetting mechanism
-                # forget_mask: B x num_nodes   its elements are float numbers in range [0,1]
-                forget_mask, remaining_span, max_span = self.expire_span(global_memory_with_goal, relative_time) # 0 means being forgotten
-                global_memory_with_goal = global_memory_with_goal * forget_mask.unsqueeze(-1) # multiply each node feature with its forgetting coefficient.
-                self.forget_mask, self.remaining_span, self.max_span = forget_mask, remaining_span, max_span
+        if self.forget and not disable_forgetting:
+            if not self.random_select:
+                if self.forget_type == 0: # simple forgetting mechanism
+                    forget_mask = observations['forget_mask'][:,:max_node_num] # its elements are either 1 or 0. 0 means being forgotten
+                    
+                elif self.forget_type == 1: # expiring forgetting mechanism
+                    # forget_mask: B x num_nodes   its elements are float numbers in range [0,1]
+                    forget_mask, remaining_span, max_span = self.expire_span(global_memory_with_goal, relative_time) # 0 means being forgotten
+                    global_memory_with_goal = global_memory_with_goal * forget_mask.unsqueeze(-1) # multiply each node feature with its forgetting coefficient.
+                    self.forget_mask, self.remaining_span, self.max_span = forget_mask, remaining_span, max_span
+            else:
+                forget_mask = torch.ones(B, max_node_num, device=device)
+                num_forgotten = int((self.forget_rank * max_node_num).item())
+
+                for b in range(B):
+                    random_forgotten_idxs = torch.randint(0, max_node_num, size=(num_forgotten, ))
+                    forget_mask[b, random_forgotten_idxs] = 0
             
             forget_idxs = torch.nonzero(forget_mask==0)
             #print("Num nodes",max_node_num, forget_idxs)
@@ -567,7 +578,7 @@ class Perception(nn.Module):
             #     global_mask[idx[0], -max_node_num + idx[1]] = 0 # this is suitable for models with or without env global nodes
 
         #t1 = time()
-        if env_global_node is not None: # GATv2: this block takes 0.0002s
+        if env_global_node is not None: # global node: this block takes 0.0002s
             batch_size, A_dtype = global_A.shape[0], global_A.dtype
 
             global_memory_with_goal = torch.cat([env_global_node, global_memory_with_goal], dim=1)
@@ -650,8 +661,8 @@ class Perception(nn.Module):
 
         # print(new_env_global_node[0:2,0,0:10])
         return curr_context.squeeze(1), goal_context.squeeze(1), new_env_global_node, \
-            {'goal_attn': goal_attn if self.with_transformer else None,
-            'curr_attn': curr_attn if self.with_transformer else None,
+            {'goal_attn': goal_attn.squeeze(1) if self.with_transformer else None,
+            'curr_attn': curr_attn.squeeze(1) if self.with_transformer else None,
             'GAT_attn': GAT_attn if GAT_attn is not None else None,
             'Adj_mat': global_A} if return_features else None
 
@@ -818,7 +829,7 @@ class GATPerception(nn.Module):
             curr_context, curr_attn = self.curr_Decoder(curr_embedding.unsqueeze(1), global_context, global_mask)
         
         return curr_context.squeeze(1), goal_context.squeeze(1), new_env_global_node, \
-            {'goal_attn': goal_attn if self.with_transformer else None,
-            'curr_attn': curr_attn if self.with_transformer and not self.wo_cur_decoder else None,
+            {'goal_attn': goal_attn.squeeze(1) if self.with_transformer else None,
+            'curr_attn': curr_attn.squeeze(1) if self.with_transformer and not self.wo_cur_decoder else None,
             'GAT_attn': GAT_attn if GAT_attn is not None else None,
             'Adj_mat': global_A} if return_features else None

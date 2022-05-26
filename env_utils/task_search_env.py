@@ -379,7 +379,7 @@ class SearchEnv(RLEnv):
         self.map_res = self.task_config.TASK.TOP_DOWN_GRAPH_MAP.MAP_RESOLUTION // 4
         self.meters_per_pixel = maps.calculate_meters_per_pixel(self.map_res, self.habitat_env.sim, self.habitat_env.sim.pathfinder) 
         self.recolor_map = np.array([[255, 255, 255], [128, 128, 128], [0, 0, 0]], dtype=np.uint8)
-        node_side = self.map_res // 16
+        node_side = self.map_res // 32
         self.node_side = node_side
         self.square = np.tile(np.array([[[255,0,0]]], dtype=np.uint8), (node_side, node_side, 1))
         self.target_square = np.tile(np.array([[[0,240,0]]], dtype=np.uint8), (node_side, node_side, 1)) 
@@ -396,23 +396,6 @@ class SearchEnv(RLEnv):
         # img = maps.colorize_topdown_map(
         #         img, info["top_down_map"]["fog_of_war_mask"]
         #     )
-        img = maps.get_topdown_map(self.habitat_env.sim.pathfinder, height=self.positions[0][1], meters_per_pixel=self.meters_per_pixel)
-        img = self.recolor_map[img]
-        #img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-        if len(self.positions) > 5:
-            map_pos = [self.obs['target_pose']]
-            map_pos.extend(self.positions)
-            traj_points = self.convert_points_to_topdown(self.habitat_env.sim.pathfinder, map_pos, self.meters_per_pixel)
-            target_pos, traj_points = traj_points[0], traj_points[1:]
-            for pos_id in range(1, len(traj_points)):
-                color = tuple(map(lambda x: int(255 * x), self.cmap((pos_id + 1) / len(traj_points))[0:3]))
-                cv2.line(img,
-                        (traj_points[pos_id-1][1], traj_points[pos_id-1][0]),
-                        (traj_points[pos_id][1], traj_points[pos_id][0]),
-                        color=color,
-                        thickness = 2)
-        
-            utils.paste_overlapping_image(img, self.target_square  // self.num_goals * (self.curr_goal_idx+1), (target_pos[0], target_pos[1]))
         
         top_down_map = None
         if att_features is not None:
@@ -457,7 +440,7 @@ class SearchEnv(RLEnv):
             cv2.arrowedLine(top_down_map, (xy_vis_points[-1][1], xy_vis_points[-1][0] - 20), (xy_vis_points[-1][1], xy_vis_points[-1][0]), (0,0,255), tipLength=0.3)
             utils.paste_overlapping_image(top_down_map, self.target_square  // self.num_goals * (self.curr_goal_idx+1), (target_point[0], target_point[1]))
 
-            maps.draw_path(top_down_map, xy_vis_points)
+            maps.draw_path(top_down_map, xy_vis_points, color=(112,193,179))
 
         #if mode == 'rgb' or mode == 'rgb_array':
             #return img
@@ -473,59 +456,61 @@ class SearchEnv(RLEnv):
         return img, top_down_map
         #return super().render(mode)
 
-    def render(self, mode='rgb', waypoint_pose=None, att_features=None, forget_node_indices=None, imshow=False):
-        # waypoint_pose: a list of waypoint xyz coords
-        # att_features: the att scores of the last GATv2 layer; size: num_nodes
-        # forget_node_indices: 
-        info = self.get_info(None) if self.info is None else self.info # ['distance_to_goal', 'success', 'spl', 'collisions', 'top_down_map']
-
-        img = observations_to_image(self.obs, info, mode='panoramic')
-        
-        top_down_map = None
-        if att_features is not None:
-            top_down_map = maps.get_topdown_map(self.habitat_env.sim.pathfinder, height=waypoint_pose[0][1], meters_per_pixel=self.meters_per_pixel)
-            top_down_map = self.recolor_map[top_down_map]
-
-             # create a colored square of size side x side x 3
-            waypoint_pose.append(self.obs['target_pose'])
-            xy_vis_points = self.convert_points_to_topdown(self.habitat_env.sim.pathfinder, waypoint_pose, self.meters_per_pixel)
-            waypoint_pose.pop(-1)
-            xy_vis_points, target_point = xy_vis_points[:-1], xy_vis_points[-1]
-
-            # if att_features.shape[0] == len(waypoint_pose): # without global node
-            att_features = att_features[-len(waypoint_pose):] # the attention scores of (i) the env global node, or (ii) goal emb or (iii) cur emb to all waypoints
-            if len(waypoint_pose) > 1:
+    def render_map_nodes(self, top_down_map, waypoint_pose, att_features, forget_node_indices):
+        xy_vis_points = self.convert_points_to_topdown(self.habitat_env.sim.pathfinder, waypoint_pose, self.meters_per_pixel)
+        att_features = att_features[-len(waypoint_pose):]
+        if len(waypoint_pose) > 1:
                 att_features = (att_features - att_features.min()) / (att_features.max() - att_features.min())
 
-            #print(top_down_map.shape, '\n', xy_vis_points,'\n', att_features,'\n')
-            for i in range(len(waypoint_pose)):
-                # cv2.putText(img=top_down_map, text='{:.3f}'.format(att_features[i].item()), org=(xy_vis_points[i][1], xy_vis_points[i][0]), \
-                #         fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                #         fontScale= min(top_down_map.shape) // 3,
-                #         color=(0, 0, 0),
-                #         thickness=1,
-                #         lineType=cv2.LINE_AA,)
-                utils.paste_overlapping_image(top_down_map, (self.square * att_features[i].item()).astype(np.uint8), (xy_vis_points[i][0], xy_vis_points[i][1]))
+        #print(top_down_map.shape, '\n', xy_vis_points,'\n', att_features,'\n')
+        maps.draw_path(top_down_map, xy_vis_points, color=(112,193,179))
+        for i in range(len(waypoint_pose)):
+            # cv2.putText(img=top_down_map, text='{:.3f}'.format(att_features[i].item()), org=(xy_vis_points[i][1], xy_vis_points[i][0]), \
+            #         fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+            #         fontScale= min(top_down_map.shape) // 3,
+            #         color=(0, 0, 0),
+            #         thickness=1,
+            #         lineType=cv2.LINE_AA,)
+            utils.paste_overlapping_image(top_down_map, (self.square * att_features[i].item()).astype(np.uint8), (xy_vis_points[i][0], xy_vis_points[i][1]))
+        
+        # print(forget_node_indices)
+        # print(xy_vis_points)
+        if forget_node_indices is not None:
+            #print('forget_node_indices',forget_node_indices)
+            half_side = self.node_side // 2 + 1
+            for idx in forget_node_indices:
+                u, v = xy_vis_points[idx[1]][0], xy_vis_points[idx[1]][1]
+                cv2.rectangle(top_down_map, (v - half_side, u - half_side), (v + half_side -1, u + half_side - 1), (255,255,255), 2)
             
-            if forget_node_indices is not None:
-                half_side = self.node_side // 2 + 1
-                for idx in forget_node_indices:
-                    u, v = xy_vis_points[idx[1]][0], xy_vis_points[idx[1]][1]
-                    cv2.rectangle(top_down_map, (v - half_side, u - half_side), (v + half_side, u + half_side), (0,0,255), 1)
-                
-            # elif att_features.shape[0] > len(waypoint_pose): # with global node
-            #     att_features = (att_features - att_features.min()) / (att_features.max() - att_features.min())
+        cv2.arrowedLine(top_down_map, (xy_vis_points[-1][1], xy_vis_points[-1][0] - 20), (xy_vis_points[-1][1], xy_vis_points[-1][0]), (255,255,0), tipLength=0.3)
+        
 
-            #     for i in range(len(waypoint_pose)):
-            #         utils.paste_overlapping_image(top_down_map, (self.square * att_features[i+1].item()).astype(np.uint8), (xy_vis_points[i][0], xy_vis_points[i][1]))
-                
-            #     utils.paste_overlapping_image(top_down_map, (self.square * att_features[0].item()).astype(np.uint8), (0, top_down_map.shape[0] //2))
+    def render_simple_traj(self, render_traj=False, waypoint_pose=None, att_features=None, forget_node_indices=None):
+        img = maps.get_topdown_map(self.habitat_env.sim.pathfinder, height=self.positions[0][1], meters_per_pixel=self.meters_per_pixel)
+        img = self.recolor_map[img]
+        
+        if render_traj:
+            if len(self.positions) > 2:
+                traj_points = self.convert_points_to_topdown(self.habitat_env.sim.pathfinder, self.positions, self.meters_per_pixel)
+                traj_points = traj_points[1:]
+                for pos_id in range(1, len(traj_points)):
+                    color = tuple(map(lambda x: int(255 * x), self.cmap((pos_id + 1) / len(traj_points))[0:3])) if waypoint_pose is None else (12,12,172)
+                    cv2.line(img,
+                            (traj_points[pos_id-1][1], traj_points[pos_id-1][0]),
+                            (traj_points[pos_id][1], traj_points[pos_id][0]),
+                            color=color,
+                            thickness = 2)
+        
+        if waypoint_pose is not None:
+            self.render_map_nodes(img, waypoint_pose, att_features, forget_node_indices)
 
-            cv2.arrowedLine(top_down_map, (xy_vis_points[-1][1], xy_vis_points[-1][0] - 20), (xy_vis_points[-1][1], xy_vis_points[-1][0]), (0,0,255), tipLength=0.3)
-            utils.paste_overlapping_image(top_down_map, self.target_square  // self.num_goals * (self.curr_goal_idx+1), (target_point[0], target_point[1]))
+        target_pos = self.convert_points_to_topdown(self.habitat_env.sim.pathfinder, [self.obs['target_pose']], self.meters_per_pixel)[0]
+        utils.paste_overlapping_image(img, self.target_square  // self.num_goals * (self.curr_goal_idx+1), (target_pos[0], target_pos[1]))
 
-            maps.draw_path(top_down_map, xy_vis_points)
-                
+        return img
+
+    def render_detailed_traj(self, info):
+        img = observations_to_image(self.obs, info, mode='panoramic')
         str_action = 'XX'
         if 'STOP' not in self.habitat_env.task.actions:
             action_list = ["MF", 'TL', 'TR']
@@ -536,7 +521,7 @@ class SearchEnv(RLEnv):
 
         reward = self.total_reward.sum() if isinstance(self.total_reward, np.ndarray) else self.total_reward
         txt = 't: %03d, r: %.2f ,dist: %.2f, stuck: %02d  a: %s '%(self.time_t,reward, self.get_dist(self.curr_goal.position)
-                                                                   , self.stuck, str_action)
+                                                                , self.stuck, str_action)
         if self.has_log_info is not None:
             if self.has_log_info['type'] == 'str':
                 txt += ' ' + self.has_log_info['info']
@@ -557,24 +542,48 @@ class SearchEnv(RLEnv):
 
         img = append_text_to_image(img, txt)
 
-        #if mode == 'rgb' or mode == 'rgb_array':
-            #return img
+        return img
+    
+    def render(self, mode='rgb', waypoint_pose=None, att_features=None, forget_node_indices=None, record=0, imshow=False):
+        # waypoint_pose: a list of waypoint xyz coords
+        # att_features: the att scores of the last GATv2 layer; size: num_nodes
+        # forget_node_indices: 
+        # record: 
+        # 0: no record; 1: only detailed traj rendering
+        # 2: only simple traj rendering
+        # 3: detailed traj rendering and goal/GATv2 att scores
+        # 4: simple traj rendering and goal/GATv2 att scores
+        # 5: detailed traj and simple traj rendering overlapped with goal/GATv2 att scores
+
+        info = self.get_info(None) if self.info is None else self.info # ['distance_to_goal', 'success', 'spl', 'collisions', 'top_down_map']
+        
+        img = None
+        if record in [1,3,5]:
+            # img = cv2.resize(self.render_detailed_traj(info), dsize=(950,450))
+            img = self.render_detailed_traj(info) # (310, 575, 3)
+
+        elif record in [2,4]:
+            img = self.render_simple_traj()
+        
+        top_down_map = None
+        if record in [3,4] and att_features is not None:
+            top_down_map = self.render_simple_traj(render_traj=False, waypoint_pose=waypoint_pose, att_features=att_features, forget_node_indices=forget_node_indices)
+            
+        elif record == 5:
+            top_down_map = self.render_simple_traj(render_traj=True, waypoint_pose=waypoint_pose, att_features=att_features, forget_node_indices=forget_node_indices)
             
         if imshow:
             cv2.imshow('render', img[:,:,::-1])
             if waypoint_pose is not None:
                 cv2.imshow('top_down_map', top_down_map[:,:,::-1])
-            # if attn_img is not None:
-            #     cv2.imshow('attn', attn_img[:,:,::-1])
+
             cv2.waitKey(1)
-            #return img
-        return cv2.resize(img, dsize=(950,450)), top_down_map
-        #return super().render(mode)
+
+        return img, top_down_map
 
     def get_dists(self, pose, other_poses):
         dists = np.linalg.norm(np.array(other_poses).reshape(len(other_poses),3) - np.array(pose).reshape(1,3), axis=1)
         return dists
-
 
 class MultiSearchEnv(SearchEnv):
     def step(self, action):

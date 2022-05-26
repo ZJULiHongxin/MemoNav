@@ -98,6 +98,33 @@ def calc_geodesic_dist(path, pathfinder, p1: list, p2: list):
     pathfinder.find_path(path)
     return path.geodesic_distance
 
+def validate(path, pathfinder, next_goal, prev_goal_list, max_search_radius, obstacle_dist, dist_upper):
+    is_valid = False
+    path.requested_start = prev_goal_list[-1]
+    path.requested_end = next_goal
+    found_path = pathfinder.find_path(path)
+
+    geodesic_dist = path.geodesic_distance
+    path_points = path.points
+
+    # print("\n==================================")
+    # print(sim.pathfinder.distance_to_closest_obstacle(next_goal, max_search_radius), obstacle_dist)
+    # print(geodesic_dist, dist_upper)
+    # print(geodesic_dist == float("inf"))
+    # print(next_goal[1], goal_list[-1][1])
+    # if scene_name == 'Sands' and (n%50 ==0 or n>550): 
+    #     print(n,
+    # sim.pathfinder.distance_to_closest_obstacle(next_goal, max_search_radius), obstacle_dist,
+    # geodesic_dist, dist_upper,
+    # next_goal[1], goal_list[-1][1])
+
+    if sim.pathfinder.distance_to_closest_obstacle(next_goal, max_search_radius) < obstacle_dist \
+        or geodesic_dist == float("inf") \
+        or geodesic_dist > dist_upper \
+        or next_goal[1] != goal_list[-1][1]: is_valid = True
+    
+    return is_valid
+    
 if __name__ == "__main__":
     scene_dir = "/data/jing_li/habitat-lab/data/scene_datasets/gibson_habitat"
     scene_name_list = ['Edgemere', 'Eastville', 'Greigsville', 'Swormville', 'Sands', 'Ribera', 'Scioto', 'Pablo', 'Elmira', 'Mosquito', 'Denmark', 'Sisters', 'Cantwell', 'Eudora']
@@ -105,11 +132,14 @@ if __name__ == "__main__":
         "Edgemere": 7.17, "Eastville": 14.84, "Greigsville": 8.40, "Swormville": 11.17, "Sands": 9.55, "Ribera": 9.72, "Scioto": 13.45, "Pablo": 9.46,
         "Elmira": 8.51, "Mosquito": 24.29, "Denmark": 8.12, "Sisters": 12.09, "Cantwell": 15.92, "Eudora": 7.51
     }
-    saved_dir = './image-goal-nav-dataset/val_multigoal'
+
+    num_goals = 4
+
+    saved_dir = './image-goal-nav-dataset/val_{}goal'.format(num_goals)
     if os.path.exists(saved_dir): shutil.rmtree(saved_dir)
     os.mkdir(saved_dir)
 
-    info_dir = './image-goal-nav-dataset/val_multigoal_info'
+    info_dir = './image-goal-nav-dataset/val_{}goal_info'.format(num_goals)
     if os.path.exists(info_dir): shutil.rmtree(info_dir)
     os.mkdir(info_dir)
     dataset_info_txt = open(os.path.join(info_dir, "info.txt"), 'w')
@@ -123,12 +153,14 @@ if __name__ == "__main__":
     max_search_radius = 1.0
     num_episodes = 50
     save_img = 1
-    num_goals = 3
+    
     num_sampling = 100
     tolerance = 600
-    dist_upper, obstacle_dist, proximity = 10, 0.5, 2
+    dist_upper, obstacle_dist, proximity = 10, 0.75, 1.5
     start_square = np.tile(np.array([[[255,0,0]]], dtype=np.uint8), (12, 12, 1))
     target_square = np.tile(np.array([[[0,255,0]]], dtype=np.uint8), (12, 12, 1))
+
+    pablo_min_x, pablo_min_z = -2.20, 0.25
 
     path = habitat_sim.ShortestPath()
     geodesic_dist_lst = []
@@ -138,7 +170,7 @@ if __name__ == "__main__":
     for i in range(len(scene_name_list)):
         
         scene_name = scene_name_list[i]
-        #if scene_name != "Ribera": continue
+        #if scene_name != "Pablo": continue
         scene_path = os.path.join(scene_dir, scene_name + ".glb")
         
         if save_img == 1:
@@ -178,7 +210,10 @@ if __name__ == "__main__":
                     while True:
                         starting_point = sim.pathfinder.get_random_navigable_point()
                         dist2obstacle = sim.pathfinder.distance_to_closest_obstacle(starting_point, max_search_radius)
-                        if dist2obstacle > obstacle_dist: break
+                        if dist2obstacle > obstacle_dist:
+                            if scene_name == "Pablo" and starting_point[0] < pablo_min_x and starting_point[2] < pablo_min_z: continue # special treatment for scene Pablo
+                            else:
+                                break
                     
                     goal_list.append(starting_point)
                     
@@ -192,7 +227,7 @@ if __name__ == "__main__":
                             while cnt < num_sampling and n <= tolerance:
                                 n += 1
                                 next_goal = sim.pathfinder.get_random_navigable_point()
-                                geodesic_dist = calc_geodesic_dist(path, sim.pathfinder, next_goal, goal_list[-1])
+                                #geodesic_dist = calc_geodesic_dist(path, sim.pathfinder, next_goal, goal_list[-1])
                                 # print("\n==================================")
                                 # print(sim.pathfinder.distance_to_closest_obstacle(next_goal, max_search_radius), obstacle_dist)
                                 # print(geodesic_dist, dist_upper)
@@ -203,10 +238,13 @@ if __name__ == "__main__":
                                 # sim.pathfinder.distance_to_closest_obstacle(next_goal, max_search_radius), obstacle_dist,
                                 # geodesic_dist, dist_upper,
                                 # next_goal[1], goal_list[-1][1])
-                                if sim.pathfinder.distance_to_closest_obstacle(next_goal, max_search_radius) < obstacle_dist \
-                                    or geodesic_dist == float("inf") \
-                                    or geodesic_dist > dist_upper \
-                                    or next_goal[1] != goal_list[-1][1]: continue
+                                # if sim.pathfinder.distance_to_closest_obstacle(next_goal, max_search_radius) < obstacle_dist \
+                                #     or geodesic_dist == float("inf") \
+                                #     or geodesic_dist > dist_upper \
+                                #     or next_goal[1] != goal_list[-1][1]: continue
+                                
+                                if not validate(path, sim.pathfinder, next_goal, goal_list, max_search_radius, obstacle_dist, dist_upper) \
+                                    or (scene_name == "Pablo" and next_goal[0] < pablo_min_x and next_goal[2] < pablo_min_z): continue
 
                                 dist_avg = 0
                                 for goal in goal_list:
@@ -225,12 +263,14 @@ if __name__ == "__main__":
                                 n += 1
 
                                 next_goal = sim.pathfinder.get_random_navigable_point()
-                                geodesic_dist = calc_geodesic_dist(path, sim.pathfinder, next_goal, goal_list[-1])
-                                if sim.pathfinder.distance_to_closest_obstacle(next_goal, max_search_radius) < obstacle_dist \
-                                    or geodesic_dist == float("inf") \
-                                    or geodesic_dist > dist_upper \
-                                    or next_goal[1] != goal_list[-1][1]: continue
-
+                                # geodesic_dist = calc_geodesic_dist(path, sim.pathfinder, next_goal, goal_list[-1])
+                                # if sim.pathfinder.distance_to_closest_obstacle(next_goal, max_search_radius) < obstacle_dist \
+                                #     or geodesic_dist == float("inf") \
+                                #     or geodesic_dist > dist_upper \
+                                #     or next_goal[1] != goal_list[-1][1]: continue
+                                if not validate(path, sim.pathfinder, next_goal, goal_list, max_search_radius, obstacle_dist, dist_upper) \
+                                    or (scene_name == "Pablo" and next_goal[0] < pablo_min_x and next_goal[2] < pablo_min_z): continue
+                                
                                 for goal in goal_list[:-1]:
                                     if calc_geodesic_dist(path, sim.pathfinder, goal, next_goal) < proximity:
                                         confirmed_next_goal = next_goal
@@ -322,6 +362,9 @@ if __name__ == "__main__":
     dataset_info_txt.close()
 
     num_bins = 15
+    tick_font_size = 20
+    text_font_size = 10
+
     geodesic_dist_range = list(range(0,2 * num_bins,2))
     geodesic_dist_histogram = [0 for _ in range(len(geodesic_dist_range)-1)]
 
@@ -341,10 +384,11 @@ if __name__ == "__main__":
     Y = geodesic_dist_histogram
     plt.bar(X, Y, width = 1.5)
     legend_lst = ["{}-{}".format(geodesic_dist_range[i], geodesic_dist_range[i+1]) for i in range(len(geodesic_dist_histogram))]
-    plt.xticks(X, legend_lst, rotation=270)
-    plt.xlabel('Range of Geodesic distance')
-    plt.ylabel('Number of trajectories')
-    plt.title('Histogram of geodesic distance over all scenes\nAvg geodesic distance: {:.2f}m'.format(avg_total_geodesic_dist))
+    plt.xticks(X, legend_lst, rotation=270, fontsize=tick_font_size)
+    plt.yticks(fontsize=tick_font_size)
+    plt.xlabel('Range of Geodesic distance', fontsize=tick_font_size)
+    plt.ylabel('Number of trajectories', fontsize=tick_font_size)
+    plt.title('{} goals\nAvg geodesic distance: {:.2f}m'.format(num_goals, avg_total_geodesic_dist), fontsize=tick_font_size)
 
     for x,y in zip(X,Y):
         plt.text(x+0.005,y+0.005,str(y), fontsize=6, ha='center',va='bottom')

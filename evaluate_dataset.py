@@ -10,7 +10,10 @@ import argparse
 import imageio
 from copy import deepcopy, copy
 import json
+import matplotlib
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
+
 import datetime
 
 parser = argparse.ArgumentParser()
@@ -25,7 +28,12 @@ parser.add_argument("--dataset", choices=['gibson', 'mp3d'], default='gibson')
 parser.add_argument("--split", choices=['val', 'train', 'min_val'], default='val')
 parser.add_argument('--eval-ckpt', type=str, required=True)
 parser.add_argument('--render', action='store_true', default=False)
-parser.add_argument('--record', choices=['0','1','2'], default='0') # 0: no record; 1: env.render; 2: goal/GATv2 att scores
+# 0: no record; 1: only official traj rendering
+# 2: simple traj rendering
+# 3: official traj rendering and goal/GATv2 att scores
+# 4: simple traj rendering and goal/GATv2 att scores
+# 5: simple traj rendering overlap with goal/GATv2 att scores
+parser.add_argument('--record', choices=['0','1','2','3','4','5'], default='0') 
 parser.add_argument('--th', type=str, default='0.75') # s_th
 parser.add_argument('--record-dir', type=str, default='data/video_dir')
 
@@ -57,11 +65,15 @@ import cv2
 import gzip
 import quaternion as q
 
+# flags for special experiments
+STEP_HISTOGRAM = False
+ATT_HISTOGRAM = False
+LTM_STABILITY = False
 
 multi_goal_val_dir = "image-goal-nav-dataset/val_{}/*"
 val_dir = "image-goal-nav-dataset/val/*"
 
-def eval_config(args):
+def get_eval_config(args):
     # args.diff can be ["easy", "medium", "hard", "2goal", "3goal", "4goal"]
     dataset_dir = val_dir if 'goal' not in args.diff else multi_goal_val_dir.format(args.diff)
     val_scene_ep_list = glob.glob(dataset_dir)
@@ -157,10 +169,6 @@ def evaluate(eval_config, ckpt):
         VIDEO_DIR = os.path.join(record_version_dir, eval_config.VERSION + '_video_' + ckpt.split('/')[-1] + '_' +str(time.ctime()))
         if not os.path.exists(VIDEO_DIR): os.mkdir(VIDEO_DIR)
 
-    # if args.record > 1:
-    #     OTHER_DIR = os.path.join(args.record_dir, eval_config.VERSION + '_other_' + ckpt.split('/')[-1] + '_' + str(time.ctime()))
-    #     if not os.path.exists(OTHER_DIR): os.mkdir(OTHER_DIR)
-
     state_dict, env_global_node, ckpt_config = load(ckpt)
 
     if ckpt_config is not None:
@@ -211,9 +219,16 @@ def evaluate(eval_config, ckpt):
     # VGMRunner
     runner = eval(eval_config.runner)(eval_config, env_global_node=env_global_node, return_features=True)
 
+    # for run time comparison
+    args1 = args
+    args1.config = './configs/vgm.yaml'
+    eval_config1 = get_eval_config(args1)
+    state_dict1, env_global_node, _ = load('./VGM_ILRL.pth')
+    runner1 = eval(eval_config.runner)(eval_config1, env_global_node=env_global_node, return_features=False)
+
     eval_info = ''
     eval_info += '=========================================\n'
-    eval_info += 'Version Name: {}\n'.format(eval_config.VERSION)
+    eval_info += 'Version Name: {} (seed: {})\n'.format(eval_config.VERSION, args.seed)
     eval_info += 'Task config path: {}\n'.format(args.dataset)
     eval_info += 'Runner: {}\n'.format(eval_config.runner)
     eval_info += 'Policy: {}\n'.format(eval_config.POLICY)
@@ -224,10 +239,16 @@ def evaluate(eval_config, ckpt):
 
     if eval_config.memory.FORGET:
         num_forgotten_nodes = "{}%".format(int(100 * eval_config.memory.RANK_THRESHOLD)) if eval_config.memory.RANK_THRESHOLD < 1 else "{}".format(int(eval_config.memory.RANK_THRESHOLD))
-        if eval_config.memory.RANK == 'bottom':
-            eval_info += 'Forgetting: {} \n\t Start forgetting after {} nodes are collected\n\t Nodes in the bottom {} will be forgotten\n'.format(str(eval_config.memory.FORGET), eval_config.memory.TOLERANCE, num_forgotten_nodes)
-        elif eval_config.memory.RANK == 'top':
-            eval_info += 'Forgetting: {} \n\t Start forgetting after {} nodes are collected\n\t Nodes in the top {} will be remembered\n'.format(str(eval_config.memory.FORGET), eval_config.memory.TOLERANCE, num_forgotten_nodes)
+        eval_info += 'Forgetting: {} \n\t Start forgetting after {} nodes are collected\n\t'.format(str(eval_config.memory.FORGET), eval_config.memory.TOLERANCE)
+
+        if eval_config.memory.RANDOM_SELECT:
+            eval_info += 'Randomly forgetting {} nodes\n'.format(num_forgotten_nodes)
+        else:
+            if eval_config.memory.RANK == 'bottom':
+                eval_info += 'Nodes in the bottom {} will be forgotten\n'.format(num_forgotten_nodes)
+            elif eval_config.memory.RANK == 'top':
+                eval_info += 'Nodes in the top {} will be remembered\n'.format(num_forgotten_nodes)
+        
         eval_info += '\t Forgetting according to {} attention scores\n'.format(eval_config.memory.FORGETTING_ATTN)
     else:
         eval_info += 'Forgetting: False\n'
@@ -241,16 +262,14 @@ def evaluate(eval_config, ckpt):
     if torch.cuda.device_count() > 0:
         device = torch.device("cuda:"+str(eval_config.TORCH_GPU_ID))
         runner.to(device)
-    #runner.load(state_dict)
 
-    try:
-        runner.load(state_dict)
-    except:
-        raise
-        agent_dict = runner.agent.state_dict()
-        new_sd = {k: v for k, v in state_dict.items() if k in agent_dict.keys() and (v.shape == agent_dict[k].shape)}
-        agent_dict.update(new_sd)
-        runner.load(agent_dict)
+    runner.load(state_dict)
+
+    runner1.eval()
+    if torch.cuda.device_count() > 0:
+        device = torch.device("cuda:"+str(eval_config1.TORCH_GPU_ID))
+        runner1.to(device)
+    runner1.load(state_dict1)
 
     # Segmentation fault (core dumped) occurred here
     env = eval(eval_config.ENV_NAME)(eval_config) # SearchEnv in task_search_env.py
@@ -304,21 +323,22 @@ def evaluate(eval_config, ckpt):
     result['noisy_action'] = env.noise
     scene_dict = {}
     render_check = False
-    avg_decision_time = [0,0]
+    avg_decision_time, avg_decision_time1 = [0,0], [0,0]
     
     done_type_list = ["success", "get stuck", "distance2goal is inf"]
 
     with torch.no_grad():
         ep_list = []
-        total_success, total_spl, total_success_timesteps = [], [], []
+        total_success, total_spl, total_success_timesteps, each_ep_stepinfo = [], [], [], []
+        LTM_dist_dict = {}
         avg_decision_time_per_ep = [0, 0]
-        decision_time_stats = {}
+        decision_time_stats, decision_time_stats1 = {}, {}
         reached_goal_idx_stats = {}
         complete_success_lst = []
         node_num_dict = {}
         att_score_range = [0.2 * i for i in range(6)]
         att_score_histogram = {}
-
+        ent_avg = {}
         env.init_map_settings()
         
         # only for forgetting module
@@ -335,20 +355,23 @@ def evaluate(eval_config, ckpt):
 
         # 3-goal
         selected = {
-            "Cantwell": [1, 4],
-            "denmark": [50, 56],
-            "Eastville": [116, 147],
-            "Elmira": [204, 223],
-            "Eudora": [262, 263],
-            "Greigsville": [300, 303],
-            "Mosquito": [353, 388],
-            "Pablo": [410, 420],
-            "Ribera": [460, 489],
-            "Scioto": [556, 568],
-            "Sisters": [605, 613],
-            "Swormville": [658]
+            "Cantwell": [2,3, 4,8,9],
+            # "denmark": list(range(50,55)),
+            # "Eastville": list(range(110,113)),
+            # "Edgemere": list(range(150,154)),
+            # "Elmira": list(range(201,205)),
+            # "Eudora": list(range(251,255)),
+            # "Greigsville": list(range(313,317)),
+            # "Mosquito": list(range(357,361)),
+            # "Pablo": list(range(400,406)),
+            # "Ribera": list(range(450,455)),
+            # "Scioto": list(range(582,585)),
+            #"Sisters": list(range(637,640)),
+            #"Swormville": [657,680,685]
         }
-
+        selected_ep_id = []
+        for v in selected.values():
+            selected_ep_id.extend(v)
 
         for episode_id in range(test_num):
             # env is env_utils/env_graph_wrapper.GraphWrapper
@@ -362,12 +385,14 @@ def evaluate(eval_config, ckpt):
                     render_check=True
             
             runner.reset()
+            runner1.reset()
 
             scene_name = env.current_episode.scene_id.split('/')[-1][:-4]
 
             #if scene_name not in ["Cantwell"]: continue # the scenes with longest episodes: Cantwell, Eastville
             #if selected.get(scene_name, None) is None or episode_id not in selected[scene_name]: continue
-            if episode_id != 143: continue
+            #if episode_id not in selected_ep_id: continue
+            #if episode_id % 500 != 0: continue
 
             if scene_name not in scene_dict.keys():
                 scene_dict[scene_name] = {'success': [], 'spl': [], 'avg_step': [], 'avg_node_num': [0,0]}
@@ -375,15 +400,15 @@ def evaluate(eval_config, ckpt):
             reward = None
             info = None
 
-            if args.record > 0:
-                img, _ = env.render('rgb') # the GraphWrapper calls the method "self.render" of superclass Wrapper (defined in gym/core.py), and Wrapper.render calls SeachEnv.render (defined in task_search_env.py)
-                imgs = [img]
-                waipoint_maps = []
+            # if args.record > 0:
+            #     img, _ = env.render('rgb') # the GraphWrapper calls the method "self.render" of superclass Wrapper (defined in gym/core.py), and Wrapper.render calls SeachEnv.render (defined in task_search_env.py)
+            #     imgs = [img]
+            #     waipoint_maps = []
             step = 0
-
+            ent_lst, LTM_dist_lst, imgs, waipoint_maps = [], [], [], []
             while True:
                 # Please copy waypoints before calling runner.step to obtain att_scores, since att_scores belong to old waypoints
-                waypoint_pose = copy(env.graph.node_position_list[0]) if args.record >= 2 else None
+                waypoint_pose = copy(env.graph.node_position_list[0]) if args.record >= 3 else None
 
                 # obs contains the following keys:
                 #  'rgb_0-11', 'depth_0-11', 'panoramic_rgb', 'panoramic_depth', 'target_goal': torch.tensor of shape [1, 64, 252, 4] in float range [0,1], 'episode_id', 'step', 'position', 'rotation', 'target_pose', 'distance', 'have_been',
@@ -391,17 +416,30 @@ def evaluate(eval_config, ckpt):
                 #print(obs["target_goal"][0,:,:,0:3].max(), obs["target_goal"][0,:,:,0:3].min(), obs["target_goal"][0,:,:,0:3].dtype)
                 # cv2.imshow("2",obs["target_goal"][0,:,:,0:3].cpu().numpy())
                 # cv2.waitKey(5)
-                action, att_scores, decision_time = runner.step(obs, reward, done, info, env)
+                action, att_scores, decision_time, ent, LTM_dist = runner.step(obs, reward, done, info, env)
+                #print(type(action))
                 avg_decision_time_per_ep[0] += decision_time
                 avg_decision_time_per_ep[1] += 1
 
+                _,_,decision_time1,_,_ = runner1.step(obs, reward, done, info, env)
+
                 num_nodes = int(obs['global_mask'].sum().item())
+                #print('step:',step,'num nodes', num_nodes)
                 if decision_time_stats.get(num_nodes, None) is None:
                     decision_time_stats[num_nodes] = [decision_time, 1]
                 else:
                     decision_time_stats[num_nodes][0] += decision_time
                     decision_time_stats[num_nodes][1] += 1
                 
+                if decision_time_stats1.get(num_nodes, None) is None:
+                    decision_time_stats1[num_nodes] = [decision_time1, 1]
+                else:
+                    decision_time_stats1[num_nodes][0] += decision_time1
+                    decision_time_stats1[num_nodes][1] += 1
+
+                # NOTE: this two lines is used to conduct exp in the supp
+                ent_lst.append(ent.item())
+                LTM_dist_lst.append(LTM_dist)
                 # Forget some less important nodes
                 # att_scores is a dict {'goal_attn': 1 x num_nodes, 'curr_attn': 1 x num_nodes, 'GAT_attn'}
                 forget_node_indices = env.forget_node(
@@ -418,7 +456,7 @@ def evaluate(eval_config, ckpt):
                     max_node_num = obs['global_mask'][0].sum().item()
 
                 # calculate att score histgrams for ablation studies
-                if 0:
+                if ATT_HISTOGRAM:
                     if att_score_histogram.get(scene_name, None) is None: att_score_histogram[scene_name] = [0] * (len(att_score_range) - 1)
 
                     if att_scores['GAT_attn'] is not None:
@@ -459,18 +497,17 @@ def evaluate(eval_config, ckpt):
                 if args.record > 0:
                     # node_position_list is a nested list containing several lists, each of which contains a series of waypoints and is maintained for a single episode
                     # each waypoint is a 3d vec whose meaning is unclear, but its form is the same as that of nav_point = env.env.habitat_env.sim.pathfinder.get_random_navigable_point()
-                    if args.record >= 2:
+                    if args.record >= 3:
                         att_scores = att_scores[attn_choice][0].squeeze(0) # the batch size is 1, so we take the first element
                     else:
                         att_scores = None
                     
-                    
-                    input(att_scores)
                     img, waipoint_map = env.render(
                         'rgb',
                         waypoint_pose=waypoint_pose,
                         att_features=att_scores,
                         forget_node_indices = forget_node_indices,
+                        record=args.record,
                         imshow=args.render) # <class 'numpy.ndarray'> (450, 950, 3)
                     
                     if waipoint_map is not None:
@@ -497,7 +534,11 @@ def evaluate(eval_config, ckpt):
             
             if info['success']:
                 scene_dict[scene_name]['avg_step'].append(step)
+                
                 total_success_timesteps.append(step)
+
+                each_ep_stepinfo.append([scene_name+str(episode_id), step, info['success'] / spl])
+
                 complete_success_lst.append("{}_ep{}".format(scene_name, episode_id))
 
                 scene_dict[scene_name]['avg_node_num'][0] += max_node_num
@@ -524,6 +565,7 @@ def evaluate(eval_config, ckpt):
             
             if args.record > 0:
                 video_name = os.path.join(VIDEO_DIR,'%04d_%s_success=%.1f_spl=%.1f_step=%.1f.mp4'%(episode_id, scene_name, info['success'], spl, step))
+
                 with imageio.get_writer(video_name, fps=30) as writer:
                     im_shape = imgs[-1].shape
                     for im in imgs:
@@ -532,22 +574,24 @@ def evaluate(eval_config, ckpt):
                         writer.append_data(im.astype(np.uint8))
                     writer.close()
                 
-                if len(waipoint_maps) > 0 and waipoint_maps[0] is not None:
-                    video_name = os.path.join(VIDEO_DIR,'waypoint_map_%04d_%s_success=%.1f_spl=%.1f.mp4'%(episode_id, scene_name, info['success'], spl))
-                    with imageio.get_writer(video_name, fps=30) as writer:
-                        im_shape = waipoint_maps[-1].shape
-                        for im in waipoint_maps:
-                            if (im.shape[0] != im_shape[0]) or (im.shape[1] != im_shape[1]):
-                                im = cv2.resize(im, (im_shape[1], im_shape[0]))
-                            writer.append_data(im.astype(np.uint8))
-                        writer.close()
+                if args.record in [3,4,5]:
+                    if len(waipoint_maps) > 0 and waipoint_maps[0] is not None:
+                        video_name = os.path.join(VIDEO_DIR,'waypoint_map_%04d_%s_success=%.1f_spl=%.1f.mp4'%(episode_id, scene_name, info['success'], spl))
+                        with imageio.get_writer(video_name, fps=30) as writer:
+                            im_shape = waipoint_maps[-1].shape
+                            for im in waipoint_maps:
+                                if (im.shape[0] != im_shape[0]) or (im.shape[1] != im_shape[1]):
+                                    im = cv2.resize(im, (im_shape[1], im_shape[0]))
+                                writer.append_data(im.astype(np.uint8))
+                            writer.close()
 
-            print('[{:04d}/{:04d}] {} success {:.4f}, spl {:.4f}, steps {:.2f}, final_reached_goal_idx {} || total success {:.4f}, spl {:.4f}, success time step {:.2f}, avg decision time {:.4f}s'.format(episode_id,
+            print('[{:04d}/{:04d}] {} success {:.4f}, spl {:.4f}, steps {:.2f}, ent {:.4f}, final_reached_goal_idx {} || total success {:.4f}, spl {:.4f}, success time step {:.2f}, avg decision time {:.4f}s'.format(episode_id,
                                                           test_num,
                                                           scene_name,
                                                           info['success'],
                                                           spl,
                                                           step,
+                                                          sum(ent_lst) / len(ent_lst),
                                                           final_reached_goal_idx,
                                                           np.array(total_success).mean(),
                                                           np.array(total_spl).mean(),
@@ -555,10 +599,16 @@ def evaluate(eval_config, ckpt):
                                                           avg_decision_time_per_ep[0] / avg_decision_time_per_ep[1],
                                                           ))
 
+            if ent_avg.get(scene_name, None) is None:
+                    ent_avg[scene_name] = [0, 0]
+            ent_avg[scene_name][0] += sum(ent_lst) / len(ent_lst)
+            ent_avg[scene_name][1] += 1
+
             avg_decision_time[0] += avg_decision_time_per_ep[0]
             avg_decision_time[1] += avg_decision_time_per_ep[1]
 
-            #if episode_id == 0: break
+            LTM_dist_dict[scene_name+str(episode_id)] = LTM_dist_lst
+            #if episode_id == 5: break
     
     result['eval_info'] = eval_info
     result['detailed_info'] = ep_list
@@ -579,13 +629,20 @@ def evaluate(eval_config, ckpt):
         success.extend(scene_dict[scene_name]['success'])
         spl.extend(scene_dict[scene_name]['spl'])
     
+    # NOTE: delete this print
+    for k in ent_avg.keys():
+        ent_avg[k][0] = ent_avg[k][0] / ent_avg[k][1]
+    print('Avg entropy for each scene:\n', ent_avg)
+    print('Avg entropy over all: {:.4f}\n'.format(np.array(list(ent_avg.values())).mean()))
+
     result['avg_success'] = np.array(success).mean().item()
     result['avg_spl'] = np.array(spl).mean().item()
+    result['each_ep_stepinfo'] = each_ep_stepinfo
     result['avg_timesteps'] = np.array(total_success_timesteps).mean().item()
     result['avg_decision_time'] = avg_decision_time[0] / avg_decision_time[1]
     result['reached_goal_idx_stats'] = reached_goal_idx_stats
     result['complete_success_ep'] = complete_success_lst
-
+    result['LTM_dist'] = LTM_dist_dict
     if len(att_score_histogram) > 0:
         result['att_score_histogram'] = {'hist_attn_type': hist_attn_type,
                                         'ranges': att_score_range,
@@ -594,8 +651,13 @@ def evaluate(eval_config, ckpt):
     decision_time = {}
     for k in decision_time_stats.keys():
         decision_time[k] = decision_time_stats[k][0] / decision_time_stats[k][1]
-        node_num_dict
+    
+    decision_time1 = {}
+    for k in decision_time_stats1.keys():
+        decision_time1[k] = decision_time_stats1[k][0] / decision_time_stats1[k][1]
+
     result['decision_time_stats'] = decision_time # stores the time used by the Policy.act() compared with the different number of nodes contained in the topological map  
+    result['decision_time_stats1'] = decision_time1
     print('================================================')
     print('avg success : %.4f'%result['avg_success'])
     print('avg spl : %.4f'%result['avg_spl'])
@@ -608,7 +670,7 @@ if __name__=='__main__':
 
     import joblib
     import glob
-    cfg = eval_config(args)
+    cfg = get_eval_config(args)
     if os.path.isdir(args.eval_ckpt):
         print('eval_ckpt ', args.eval_ckpt, ' is directory')
         ckpts = [os.path.join(args.eval_ckpt,x) for x in sorted(os.listdir(args.eval_ckpt))]
@@ -652,6 +714,10 @@ if __name__=='__main__':
             for num_node in result['decision_time_stats'].keys():
                 lines.append("{}: {:.4f}\n".format(num_node, result['decision_time_stats'][num_node]))
             
+            lines.append("\nDecision time [sec] of VGM:\n")
+            for num_node in result['decision_time_stats1'].keys():
+                lines.append("{}: {:.4f}\n".format(num_node, result['decision_time_stats1'][num_node]))
+
             lines.append("\nHow many goals the agent reached successfully:\n")
             for num_goal in result['reached_goal_idx_stats']:
                 lines.append("{} goals: {} episodes\n".format(num_goal, result['reached_goal_idx_stats'][num_goal]))
@@ -669,6 +735,30 @@ if __name__=='__main__':
             f.writelines(lines)
         print("save brief eval results to", each_scene_results_txt)
 
+        if STEP_HISTOGRAM:
+            step_each_ep_txt = os.path.join(this_exp_dir, "{}_{}_{}_step_record.txt".format(cfg.VERSION, ckpt_name, args.diff))
+            with open(step_each_ep_txt, 'w') as f:
+                lines = []
+                for sn, step, pathratio in result['each_ep_stepinfo']:
+                    lines.append('{} {:.2f} {:.4f}\n'.format(sn, step, pathratio))
+                f.writelines(lines)
+            print("save step info results to", step_each_ep_txt)
+
+        # LTM variations
+        if LTM_STABILITY:
+            LTM_dist_dict = result['LTM_dist']
+            tick_font_size = 15
+            img_dir = os.path.join(this_exp_dir, 'LTM')
+            if not os.path.exists(img_dir): os.mkdir(img_dir)
+
+            for ep, lst in LTM_dist_dict.items():
+                plt.plot(list(range(1,len(lst)+1)), lst)
+                plt.xlabel('Time step', fontsize=tick_font_size)
+                plt.ylabel('L2 distance', fontsize=tick_font_size)
+                plt.title(ep)
+                plt.savefig(os.path.join(img_dir, '{}.png'.format(ep)), dpi=300)
+                plt.clf()
+        
         # detailed eval results
         eval_data_name = os.path.join(this_exp_dir, '{}_{}_{}.dat.gz'.format(cfg.VERSION, ckpt_name, args.diff))
         if os.path.exists(eval_data_name):

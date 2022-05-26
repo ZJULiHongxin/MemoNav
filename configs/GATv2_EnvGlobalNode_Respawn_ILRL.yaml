@@ -1,4 +1,4 @@
-VERSION: GATv2_EnvGlobalNode_Respawn_ILRL
+VERSION: GATv2_EnvGlobalNode_Respawn_ILRL_v2_test
 runner: 'VGMRunner'
 scene_data: 'gibson'
 BASE_TASK_CONFIG_PATH: "configs/vistargetnav_gibson.yaml"
@@ -6,8 +6,8 @@ IL_TRAINER_NAME: "BC_trainer"
 RL_TRAINER_NAME: "PPOTrainer_Memory_aux"
 ENV_NAME: "SearchEnv"
 
-SIMULATOR_GPU_ID: 1
-TORCH_GPU_ID: 2
+SIMULATOR_GPU_ID: 3
+TORCH_GPU_ID: 3
 
 NUM_PROCESSES: 4
 NUM_VAL_PROCESSES: 0
@@ -26,9 +26,29 @@ WRAPPER: 'GraphWrapper'
 
 GCN:
   TYPE: "GATv2"
+  #GRAPH_NORM: 'graph_norm'
   WITH_ENV_GLOBAL_NODE: True
   RANDOMINIT_ENV_GLOBAL_NODE: False
   RESPAWN_GLOBAL_NODE: True
+
+  # only used for ablation experiments
+  ENV_GLOBAL_NODE_LINK_RANGE: -1.0 # 0.2, 0.5, 0.8 # default to -1.0
+  RANDOM_REPLACE: False # Default to False
+
+# only used for ablation experiments
+transformer:
+  DECODE_GLOBAL_NODE: True # Default to True
+  
+
+memory:
+  FORGET: False
+  TRAINIG_FORGET: False # Training the MemoNav with forgetting. Only used for ablation experiments
+  FORGETTING_TYPE: "simple"
+  FORGETTING_ATTN: "goal" # "goal", "cur", "global_node" # default to "goal"
+  RANK: "bottom" # "top", "bottom"
+  RANK_THRESHOLD: 0.2 # nodes with att. scores ranking below 20%
+  TOLERANCE: 1 # Start forgetting after TOLERANCE nodes have been collected
+  RANDOM_SELECT: False # Default to False. Only used for ablation experiments
 
 REWARD_METHOD: 'progress'
 USE_AUXILIARY_INFO: True
@@ -36,7 +56,7 @@ USE_AUXILIARY_INFO: True
 BC:
   max_epoch: 100 # defalt to 100
   batch_size: 16
-  num_workers: 4
+  num_workers: 8
 
 RL:
   SUCCESS_REWARD: 10.0
@@ -45,6 +65,6 @@ RL:
   PPO:
     num_mini_batch: 2
     num_steps: 256
-    rl_pretrained: True
-    il_pretrained: False
-    pretrained_weights: "data/new_checkpoints/GATv2_EnvGlobalNode_Respawn_ILRL_RL/ckpt.18.pth"
+    rl_pretrained: False
+    il_pretrained: True
+    pretrained_weights: "data/new_checkpoints/GATv2_EnvGlobalNode_Respawn_ILRL_v2_IL/epoch0026iter24500.pt"
