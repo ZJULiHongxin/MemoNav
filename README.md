@@ -117,10 +117,10 @@ We compared our model with VGM on multi-goal test datasets which can be download
 | MemoNav (ours)   |     0.50         |      0.17       | 0.42 | 0.09 | 0.31 | 0.05 |
 
 ### Visualizations
-<iframe height=320 width=576 src="./assets/0096_Denmark_success=1.0_spl=0.2_step=218.0.mp4"></iframe>
-<iframe height=192 width=288 src="./assets/waypoint_map_0096_Denmark_success=1.0_spl=0.2.mp4"></iframe>
-<iframe height=320 width=576 src="./assets/0579_Scioto_success=1.0_spl=0.5_step=137.0.mp4"></iframe>
-<iframe height=368 width=432 src="waypoint_map_0579_Scioto_success=1.0_spl=0.5.mp4"></iframe>
+<iframe> height=320 width=576 src="./assets/0096_Denmark_success=1.0_spl=0.2_step=218.0.mp4"</iframe>
+<iframe> height=192 width=288 src="./assets/waypoint_map_0096_Denmark_success=1.0_spl=0.2.mp4"</iframe>
+<iframe> height=320 width=576 src="./assets/0579_Scioto_success=1.0_spl=0.5_step=137.0.mp4"</iframe>
+<iframe> height=368 width=432 src="waypoint_map_0579_Scioto_success=1.0_spl=0.5.mp4"</iframe>
 
 ## Contributing
 
