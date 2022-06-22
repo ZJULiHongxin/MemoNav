@@ -1,27 +1,27 @@
-# Visual-Graph-Memory
-This is an official GitHub Repository for paper "Visual Graph Memory with Unsupervised Representation for Visual Navigation", which is accepted as a regular paper (poster) in ICCV 2021.
+# MemoNav: Selecting Informative Memories for Visual Navigation
 
-## Setup
-### Requirements
+This repository is the official implementation of [MemoNav](https://arxiv.org/abs/2030.12345). 
+
+
+![Model overview](./assets/Main_Model.png)
+
+## Requirements
 The source code is developed and tested in the following setting. 
-- Python 3.6
-- pytorch 1.4~1.7
-- habitat-sim 0.1.7 (commit version: ee75ba5312fff02aa60c04f0ad0b357452fc2edc)
-- habitat 0.1.7 (commit version: 34a4042c03d6596f1d614faa4891868ddaf81c04)
+- Python 3.7
+- pytorch 1.7.1
+- habitat-sim 0.2.0
+- habitat 0.2.1
 
-Please refer to [habitat-sim](https://github.com/facebookresearch/habitat-sim.git) and [habitat-lab](https://github.com/facebookresearch/habitat-lab.git) for installation.
+Please refer to [habitat-sim](https://github.com/facebookresearch/habitat-sim.git) and [habitat-lab](https://github.com/facebookresearch/habitat-lab.git) for installation instructions.
 
-To set the environment, run:
-```
+To install requirements:
+
+```setup
 pip install -r requirements.txt
 ```
 
-
-### Habitat Data (Gibson, MP3D) Setup
-
-Most of the scripts in this code build the environments assuming that the **gibson/mp3d dataset** is in **habitat-lab/data/** folder.
-
-The recommended folder structure of habitat-api (or habitat-lab):
+## Habitat Data Setup
+The scene datasets and task datasets used for training should be organized in the habitat-lab directory as follows:
 ```
 habitat-api (or habitat-lab)
   └── data
@@ -36,57 +36,92 @@ habitat-api (or habitat-lab)
               └── *.glb, *.navmeshs  
 ```
 
-otherwise, you should edit the data path in [these](https://github.com/rllab-snu/Visual-Graph-Memory/blob/4103038781211ed880894650e7aa7245ea627027/env_utils/make_env_utils.py#L110-L114) [lines](https://github.com/rllab-snu/Visual-Graph-Memory/blob/4103038781211ed880894650e7aa7245ea627027/env_utils/custom_habitat_env.py#L85-L92).
-
-## VGM Demonstration
-To visualize the VGM generation, run:
+The single and multi-goal test datasets should be organized as follows:
 ```
-python vgm_demo.py --gpu 0 --num-proc 2
-```
-This command will show the online VGM generation during *random exploration*.
-The rendering window will show the generated VGM and the observations as follows:
-
-![vgm_demo_1](docs/vgm_demo_1.gif) ![vgm_demo_1](docs/vgm_demo_2.gif)
-
-Note that the top-down map and pose information are only used for visualization, not for the graph generation. 
-
-
-## Imitation Learning
-1. Data generation
-    ```
-    python collect_IL_data.py --ep-per-env 200 --num-procs 4 --split train --data-dir /path/to/save/data
-    ```
-    This will generate the data for imitation learning.
-    You can find some examples of the collected data in *IL_data* folder, and look into them with  *show_IL_data.ipynb*.
-2. Training
-    ```
-   python train_bc.py --config configs/vgm.yaml --stop --gpu 0
-    ```
-3. Evaluation
-
-
-## Reinforcement Learning
-The reinforcement learning code is highly [based on habitat-lab/habitat_baselines](https://github.com/facebookresearch/habitat-lab/tree/master/habitat_baselines).
-To train the agent with reinforcement learning (PPO), run:
-```
-python train_rl.py --config configs/vgm.yaml --version EXPERIMENT_NAME --diff hard --render --stop --gpu 0
+This repo
+  └── image-goal-nav-dataset
+      └── val
+      │   └── *.json.gz
+      └── val_2goal
+      │   └── *.json.gz
+      └── val_3goal
+      │   └── *.json.gz
+      └── val_4goal
+          └── *.json.gz
 ```
 
+## Training
+The MemoNav is trained for two phases as the VGM. We first train the agent using imitation learning, minimizing the negative log-likelihood of the ground-truth actions. Next, we finetune the agent’s policy with proximal policy optimization (PPO) to improve the exploratory ability of the agent.
 
-## Evaluation 
+### Imitation Learning
+To train the model(s) in the paper via IL, run this command:
 
-We provide evaluation code and the pretrained model.
-```
-python evaluate_random.py --config configs/vgm.yaml --version-name test --eval-ckpt VGM_ILRL.pth --stop --diff hard
+```train
+python train_bc.py --config  ./configs/GATv2_EnvGlobalNode_Respawn_ILRL.yaml --stop
 ```
 
-You can use "evaluate_dataset.py" to evaluate VGM on public image-goal nav dataset (https://github.com/facebookresearch/image-goal-nav-dataset)
-```
-git clone https://github.com/facebookresearch/image-goal-nav-dataset.git
-python evaluate_dataset.py --config configs/vgm.yaml --version-name test --eval-ckpt VGM_ILRL.pth --stop --diff hard
-```
-In the above dataset, the provided pretrained model shows following performances.
+### Reinforcement Learning
+To fintune the model(s) via RL, run this command:
 
-| Easy(SR) | Easy(SPL) | Medium(SR) | Medium(SPL) | Hard(SR) | Hard(SPL) | Overall(SR) | Overall(SPL) |
-|:--------:|:---------:|:----------:|:-----------:|:--------:|:---------:|:-----------:|:------------:|
-|   0.76   |    0.40   |    0.76    |     0.56    |   0.62   |    0.49   |     0.71    |     0.48     |
+```train
+python train_rl.py --config  ./configs/GATv2_EnvGlobalNode_Respawn_ILRL.yaml --stop --diff hard
+```
+
+## Evaluation
+
+To evaluate the model on the single-goal dataset, run:
+
+```eval
+python evaluate_dataset.py  --config ./configs/GATv2_EnvGlobalNode_Respawn_ILRL.yaml  --eval-ckpt ./data/new_checkpoints/GATv2_EnvGlobalNode_Respawn_ILRL_RL/*.pth --stop --diff hard --gpu 0,0 --forget --version <exp_name>
+
+```
+
+To evaluate the model on the multi-goal dataset, run:
+
+```eval
+python evaluate_dataset.py  --config ./configs/GATv2_EnvGlobalNode_Respawn_ILRL.yaml  --eval-ckpt ./data/new_checkpoints/GATv2_EnvGlobalNode_Respawn_ILRL_RL/*.pth --stop --diff 3goal --gpu 0,0 --forget --version <exp_name>
+
+```
+
+
+## Pre-trained Models
+
+You can download pretrained models here:
+
+- [Memonav model](https://zjueducn-my.sharepoint.com/:u:/g/personal/hongxin_li_zju_edu_cn/EVHGjFj4db9GiblAcCrTh1kBF78FpMW2-X7HUHrGsmXOZg?e=DSPnb5) trained on Gibson scene datasets. 
+
+>📋  Give a link to where/how the pretrained models can be downloaded and how they were trained (if applicable).  Alternatively you can have an additional column in your results table with a link to the models.
+## Results
+
+Our model achieves the following performance on:
+
+### [Gibson single-goal test dataset](https://github.com/facebookresearch/image-goal-nav-dataset)
+Following the experiemntal settings in VGM, our MemoNav model was tested on 1007 samples of this dataset. We reported the performances of our model and various baselines in the table. (NOTE: we re-evaluated the VGM pretrained model and reported new results)
+
+| Model name         | SR  | SPL |
+| ------------------ |---------------- | -------------- |
+| ANS   |     0.30         |      0.11       |
+| Exp4nav   |     0.47         |      0.39       |
+| SMT   |     0.56         |      0.40       |
+| Neural Planner   |     0.42         |      0.27       |
+| NTS   |     0.43         |      0.26       |
+| VGM   |     0.75         |      0.58       |
+| MemoNav (ours)   |     0.78         |      0.54       |
+
+### [Gibson multi-goal test dataset](https://github.com/facebookresearch/image-goal-nav-dataset)
+We compared our model with VGM on multi-goal test datasets which can be downloaded [here](https://zjueducn-my.sharepoint.com/:u:/g/personal/hongxin_li_zju_edu_cn/EWij85gdfT5GswDxZt5X14QBkXVEd9B-cFhr3kS0vbZ5SQ?e=Lz7zLo).
+
+| Model name         | 2goal PR  | 2goal PPL | 3goal PR  | 3goal PPL | 4goal PR  | 4goal PPL |
+| ------------------ |---------------- | -------------- |---------------- | -------------- |---------------- | -------------- |
+| VGM   |     0.45        |      0.18       | 0.33 | 0.08 | 0.28 | 0.05 |
+| MemoNav (ours)   |     0.50         |      0.17       | 0.42 | 0.09 | 0.31 | 0.05 |
+
+### Visualizations
+<iframe height=320 width=576 src="./assets/0096_Denmark_success=1.0_spl=0.2_step=218.0.mp4">
+<iframe height=192 width=288 src="./assets/waypoint_map_0096_Denmark_success=1.0_spl=0.2.mp4">
+<iframe height=320 width=576 src="./assets/0579_Scioto_success=1.0_spl=0.5_step=137.0.mp4">
+<iframe height=368 width=432 src="waypoint_map_0579_Scioto_success=1.0_spl=0.5.mp4">
+
+## Contributing
+
+<!-- >📋  Pick a licence and describe how to contribute to your code repository. >📋  A template README.md for code accompanying a Machine Learning paper -->
