@@ -117,7 +117,7 @@ Following the experiemntal settings in VGM, our MemoNav model was tested on 1007
 | MemoNav (ours)   |     0.78         |      0.54       |
 
 ### [Gibson multi-goal test dataset](https://github.com/facebookresearch/image-goal-nav-dataset)
-We compared our model with VGM on multi-goal test datasets which can be downloaded [here](https://zjueducn-my.sharepoint.com/:u:/g/personal/hongxin_li_zju_edu_cn/EWij85gdfT5GswDxZt5X14QBkXVEd9B-cFhr3kS0vbZ5SQ?e=Lz7zLo).
+We compared our model with VGM on multi-goal test datasets which can be downloaded [here](https://zjueducn-my.sharepoint.com/:u:/g/personal/hongxin_li_zju_edu_cn/EV8yJjE4PZRFjspQRUuK8SUBitWymCw7GCj-rMiWOCI18Q?e=FAGIHY).
 
 | Model name         | 2goal PR  | 2goal PPL | 3goal PR  | 3goal PPL | 4goal PR  | 4goal PPL |
 | ------------------ |---------------- | -------------- |---------------- | -------------- |---------------- | -------------- |
