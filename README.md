@@ -36,18 +36,26 @@ habitat-api (or habitat-lab)
               └── *.glb, *.navmeshs  
 ```
 
-The single and multi-goal test datasets should be organized as follows:
+The single and multi-goal train/val/test datasets should be organized as follows:
 ```
 This repo
   └── image-goal-nav-dataset
+      |
+      └── train
+      └── test
+      |  └── 1goal
+      |  └── 2goal
+      |  └── 3goal
       └── val
-      │   └── *.json.gz
-      └── val_2goal
-      │   └── *.json.gz
-      └── val_3goal
-      │   └── *.json.gz
-      └── val_4goal
-          └── *.json.gz
+        └── 1goal
+        │   └── *.json.gz
+        └── 2goal
+        │   └── *.json.gz
+        └── 3goal
+        │   └── *.json.gz
+        └── 4goal
+            └── *.json.gz
+      
 ```
 
 ## Training
