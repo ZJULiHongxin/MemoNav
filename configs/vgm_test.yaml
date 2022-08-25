@@ -1,0 +1,54 @@
+VERSION: vgm_test
+runner: 'VGMRunner'
+scene_data: 'gibson'
+BASE_TASK_CONFIG_PATH: "configs/vistargetnav_gibson.yaml"
+IL_TRAINER_NAME: "BC_trainer"
+RL_TRAINER_NAME: "PPOTrainer_Memory_aux"
+ENV_NAME: "SearchEnv"
+
+SIMULATOR_GPU_ID: 6
+TORCH_GPU_ID: 7
+
+NUM_PROCESSES: 4
+NUM_VAL_PROCESSES: 0
+
+SENSORS: ["DEPTH_SENSOR", "RGB_SENSOR"]
+
+LOG_INTERVAL: 100
+CHECKPOINT_INTERVAL: 200
+VIS_INTERVAL: 200
+
+OBS_TO_SAVE: ['global_memory', 'global_mask', 'global_A', 'global_time',
+              'panoramic_rgb', 'panoramic_depth','goal_embedding', 'episode_info', 'target_goal',
+              'step', 'have_been', 'target_dist_score']
+POLICY: 'VGMPolicy'
+WRAPPER: 'GraphWrapper'
+
+GCN:
+  TYPE: "GCN"
+
+memory:
+  FORGET: False
+  FORGETTING_TYPE: "simple"
+  FORGETTING_ATTN: "goal" # "goal", "cur", "global_node"
+  RANK: "bottom" # "top", "bottom"
+  RANK_THRESHOLD: 0.8
+  TOLERANCE: 1
+
+REWARD_METHOD: 'progress'
+USE_AUXILIARY_INFO: True
+
+BC:
+  batch_size: 16
+  num_workers: 0
+
+RL:
+  SUCCESS_REWARD: 10.0
+  SUCESS_MEASURE: 'SUCCESS'
+  SLACK_REWARD: -0.001
+  PPO:
+    num_mini_batch: 2
+    num_steps: 256
+    rl_pretrained: False
+    il_pretrained: True
+    pretrained_weights: "./data/new_checkpoints/vgm_IL/epoch0023iter20000.pt"

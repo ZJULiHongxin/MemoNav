@@ -79,11 +79,9 @@ class VGMPolicy(nn.Module):
 
         action_log_probs = distribution.log_probs(action)
         
-        # NOTE: delete this line
-        distribution_entropy = distribution.entropy().mean()
         # The shape of the output should be B * N * (shapes)
         # NOTE: change distribution_entropy to x
-        return value, action, action_log_probs, rnn_hidden_states, new_env_global_node, distribution_entropy, preds, ffeatures if return_features else None
+        return value, action, action_log_probs, rnn_hidden_states, new_env_global_node, x, preds, ffeatures if return_features else None
 
     def get_value(self, observations, rnn_hidden_states, env_global_node, prev_actions, masks):
         """
@@ -97,10 +95,10 @@ class VGMPolicy(nn.Module):
         return value
 
     def evaluate_actions(
-            self, observations, rnn_hidden_states, env_global_node, prev_actions, masks, action
+            self, observations, rnn_hidden_states, env_global_node, prev_actions, masks, action, return_features=False
     ):
-        features, rnn_hidden_states, preds, env_global_node, _ = self.net(
-            observations, rnn_hidden_states, prev_actions, masks, env_global_node, disable_forgetting=True
+        features, rnn_hidden_states, preds, env_global_node, ffeatures = self.net(
+            observations, rnn_hidden_states, prev_actions, masks, env_global_node, return_features=return_features, disable_forgetting=True
         )
         distribution, x = self.action_distribution(features)
         value = self.critic(features)
@@ -108,7 +106,7 @@ class VGMPolicy(nn.Module):
         action_log_probs = distribution.log_probs(action)
         distribution_entropy = distribution.entropy().mean()
 
-        return value, action_log_probs, distribution_entropy, preds[0], preds[1], rnn_hidden_states, env_global_node, x
+        return value, action_log_probs, distribution_entropy, preds[0], preds[1], ffeatures, rnn_hidden_states, env_global_node, x
 
     def get_memory_span(self):
         return self.net.get_memory_span()
@@ -274,7 +272,6 @@ class VGMNet(nn.Module):
             rnn_type=rnn_type,
             num_layers=num_recurrent_layers,
         )
-
         self.train()
 
     @property
@@ -311,7 +308,6 @@ class VGMNet(nn.Module):
                       observations['panoramic_depth'].permute(0, 3, 1, 2)]
         curr_tensor = torch.cat(input_list, 1)
         observations['curr_embedding'] = self.visual_encoder(curr_tensor).view(curr_tensor.shape[0], -1) # B x 512
-
         goal_tensor = observations['target_goal'].permute(0, 3, 1, 2)
         observations['goal_embedding'] = self.visual_encoder(goal_tensor).view(goal_tensor.shape[0], -1)
 

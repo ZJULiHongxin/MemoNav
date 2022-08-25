@@ -463,6 +463,11 @@ class Perception(nn.Module):
                                                nn.ReLU(),
                                                nn.Linear(memory_dim, memory_dim))
         
+        # Instantiate the global node as a trainable embedding
+        self.use_LTM_embedding = cfg.GCN.ENV_GLOBAL_NODE_MODE == "embedding"
+        if self.use_LTM_embedding:
+            self.LTM = torch.nn.Parameter(torch.zeros(1, 1, feature_dim), requires_grad=True) #nn.Embedding(1, feature_dim)
+        
         gn_dict = {
             "graph_norm": GraphNorm
         }
@@ -526,7 +531,7 @@ class Perception(nn.Module):
         return self.forget_mask, self.remaining_span, self.max_span
     
     def forward(self, observations, env_global_node, return_features=False, disable_forgetting=False): # without memory
-        # env_global_node: b x 1 x 512
+        # env_global_node: b x 1 x 512 or None
         # forgetting mechanism is enabled only when collecting trajectories and it is disabled when evaluating actions
         B = observations['global_mask'].shape[0]
         max_node_num = observations['global_mask'].sum(dim=1).max().long() # this indicates that the elements in global_mask denotes the existence of nodes
@@ -578,9 +583,11 @@ class Perception(nn.Module):
             #     global_mask[idx[0], -max_node_num + idx[1]] = 0 # this is suitable for models with or without env global nodes
 
         #t1 = time()
+        if self.use_LTM_embedding:
+            env_global_node = self.LTM.to(device).repeat(B,1,1)
+        
         if env_global_node is not None: # global node: this block takes 0.0002s
             batch_size, A_dtype = global_A.shape[0], global_A.dtype
-
             global_memory_with_goal = torch.cat([env_global_node, global_memory_with_goal], dim=1)
 
             if self.link_fraction != -1:
@@ -658,8 +665,7 @@ class Perception(nn.Module):
 
             curr_context = curr_embedding
             goal_context = goal_embedding
-
-        # print(new_env_global_node[0:2,0,0:10])
+        
         return curr_context.squeeze(1), goal_context.squeeze(1), new_env_global_node, \
             {'goal_attn': goal_attn.squeeze(1) if self.with_transformer else None,
             'curr_attn': curr_attn.squeeze(1) if self.with_transformer else None,
@@ -824,7 +830,6 @@ class GATPerception(nn.Module):
         #t1 = time()
         # the two decoding processes take 0.0018s at least and 0.0037 at most
         goal_context, goal_attn = self.goal_Decoder(goal_embedding.unsqueeze(1), global_context, global_mask)
-        
         if not self.wo_cur_decoder:
             curr_context, curr_attn = self.curr_Decoder(curr_embedding.unsqueeze(1), global_context, global_mask)
         

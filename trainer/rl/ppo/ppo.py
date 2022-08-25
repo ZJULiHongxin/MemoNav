@@ -4,6 +4,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from multiprocessing import connection
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -20,6 +21,7 @@ class PPO(nn.Module):
         value_loss_coef,
         entropy_coef,
         forgetting_coef,
+        attscore_loss_coef=0.,
         lr=None,
         eps=None,
         max_grad_norm=None,
@@ -38,7 +40,8 @@ class PPO(nn.Module):
         self.value_loss_coef = value_loss_coef
         self.entropy_coef = entropy_coef
         self.forgetting_coef = forgetting_coef
-        
+        self.attscore_loss_coef = attscore_loss_coef
+
         self.max_grad_norm = max_grad_norm
         self.use_clipped_value_loss = use_clipped_value_loss
 
@@ -65,6 +68,7 @@ class PPO(nn.Module):
         value_loss_epoch = 0
         action_loss_epoch = 0
         span_loss_epoch = 0
+        attscore_loss_epoch = 0
         dist_entropy_epoch = 0
         aux_loss1_epoch = 0
         aux_loss2_epoch = 0
@@ -80,6 +84,7 @@ class PPO(nn.Module):
                     obs_batch,
                     recurrent_hidden_states_batch,
                     env_global_node_batch, # may be None
+                    attscores_gt_batch, # may be None
                     actions_batch,
                     prev_actions_batch,
                     value_preds_batch,
@@ -95,7 +100,9 @@ class PPO(nn.Module):
                     action_log_probs,
                     dist_entropy, # a scalar obtained by averaging over all samples
                     pred_aux1,
-                    pred_aux2, *_
+                    pred_aux2,
+                    ffeatures,
+                    *_
                 ) = self.actor_critic.evaluate_actions(
                     obs_batch,
                     recurrent_hidden_states_batch,
@@ -103,6 +110,7 @@ class PPO(nn.Module):
                     prev_actions_batch,
                     masks_batch,
                     actions_batch,
+                    return_features = self.attscore_loss_coef != 0
                 )
 
                 span_loss = 0
@@ -111,6 +119,21 @@ class PPO(nn.Module):
                     mask, remaining_span, _ = self.actor_critic.get_memory_span()
                     ramp_mask = (mask > 0) * (mask < 1) # only those forgetting coefs in range (0,1) are used to derive gradients
                     span_loss = (remaining_span * ramp_mask.float()).mean() # Span Regularization: forgetting_coef * Σ_i L·Sigmoid(w·h_i + b)/Ramp/seq_len
+                
+                attscore_loss = 0
+                if self.attscore_loss_coef != 0:
+                    num_node_per_env = obs_batch['global_mask'].sum(dim=1).int() # num_steps * mini_batch
+                    attscore_pred  = ffeatures['goal_attn'] # num_steps * mini_batch x num_nodes
+
+                    for b in range(num_node_per_env.shape[0]):
+                        if num_node_per_env[b] < 2: continue
+
+                        pre_attscores = torch.clamp(attscore_pred[b,:num_node_per_env[b]], min=1e-5)
+                        attscores = torch.log(pre_attscores / pre_attscores.sum())
+                        # print('attscore',attscore_pred[b].detach(), num_node_per_env[b].detach(), attscores.detach())
+                        # print('gt',attscores_gt_batch[b, :num_node_per_env[b]])
+                        # attscore shoule be log_softmaxed, and attscore_gt shoulde be softmaxed or softmined
+                        attscore_loss += F.kl_div(attscores, attscores_gt_batch[b, :num_node_per_env[b]])
                 
                 # policy loss
                 ratio = torch.exp(
@@ -145,11 +168,13 @@ class PPO(nn.Module):
 
                 self.optimizer.zero_grad()
 
+                #print(value_loss,action_loss,attscore_loss,aux_loss1,aux_loss2); input()
                 total_loss = (
                     value_loss * self.value_loss_coef
                     + action_loss
                     - dist_entropy * self.entropy_coef
                     + span_loss * self.forgetting_coef # NOTE: Innovation 
+                    + attscore_loss * self.attscore_loss_coef
                 )
                 if pred_aux1 is not None:
                     total_loss += aux_loss1
@@ -178,12 +203,13 @@ class PPO(nn.Module):
         value_loss_epoch /= num_updates
         action_loss_epoch /= num_updates
         span_loss_epoch /= num_updates
+        attscore_loss_epoch /= num_updates
         dist_entropy_epoch /= num_updates
 
         aux_loss1_epoch /= num_updates
         aux_loss2_epoch /= num_updates
 
-        return value_loss_epoch, action_loss_epoch, span_loss_epoch, dist_entropy_epoch, aux_loss1_epoch, aux_loss2_epoch
+        return value_loss_epoch, action_loss_epoch, dist_entropy_epoch, aux_loss1_epoch, aux_loss2_epoch, {'span_loss_epoch': span_loss_epoch, 'attscore_loss': attscore_loss_epoch}
 
     def before_backward(self, loss):
         pass

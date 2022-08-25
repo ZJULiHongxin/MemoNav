@@ -44,8 +44,14 @@ class PPOTrainer_Memory(BaseRLTrainer):
         self.agent = None
         self.envs = None
 
-        self.with_env_global_node = config.GCN.WITH_ENV_GLOBAL_NODE
-        self.respawn_env_global_node = config.GCN.RESPAWN_GLOBAL_NODE
+        # The global node has 3 modes:
+        # - respawn: create an zero-initialized vector at the beginning of each trajectory
+        # - no_respawn: inherit the global node used in the last trajectory
+        # - embedding: instantiate the global node as a trainable embedding
+        # - unavailable: do not use global node
+        self.global_node_mode = config.GCN.ENV_GLOBAL_NODE_MODE
+        self.create_env_global_node = self.global_node_mode in ["no_respawn", "respawn"]
+        print("\033[0;33;40m[ppo_trainer_memory] Global node mode: {}\033[0m\n".format(self.global_node_mode))
         self.randominit_env_global_node = config.GCN.RANDOMINIT_ENV_GLOBAL_NODE
         
         # forgetting mechanism
@@ -56,6 +62,8 @@ class PPOTrainer_Memory(BaseRLTrainer):
             self.att_type = "curr_attn"
         elif "global" in config.memory.FORGETTING_ATTN.lower() or "gat" in config.memory.FORGETTING_ATTN.lower():
             self.att_type = "GAT_attn"
+
+        self.supervise_attscores = config.memory.ATTSCORE_LOSS_COEF != 0
 
         if config is not None:
             logger.info(f"config: {config}")
@@ -130,7 +138,7 @@ class PPOTrainer_Memory(BaseRLTrainer):
                 })
                 self.actor_critic.load_state_dict(initial_state_dict)
 
-            if self.with_env_global_node and self.respawn_env_global_node == False: # this means env global node was saved and it is reused now.
+            if self.global_node_mode == "no_respawn": # this means env global node was saved and it is reused now.
                 self.env_global_node = pretrained_state.get('env_global_node', None) # 1 x 512
                 if self.env_global_node is None:
                     self.env_global_node = getattr(self.actor_critic.net.perception_unit, 'env_global_node', None)
@@ -176,7 +184,7 @@ class PPOTrainer_Memory(BaseRLTrainer):
                 print('The checkpoint loaded contain these redundant weights: ')
                 print(unexpected_keys)
             
-            # if self.with_env_global_node:
+            # if self.create_env_global_node:
             #     self.env_global_node = pretrained_state.get('env_global_node', None)
             #     if self.env_global_node is None:
             #         self.env_global_node = getattr(self.actor_critic.net.perception_unit, 'env_global_node', None)
@@ -204,6 +212,7 @@ class PPOTrainer_Memory(BaseRLTrainer):
             # the greater the ramp is, the more nodes are used to calculate expire-span gradients.
             # Therefore, we divide the span loss with the ramp value to keep its scale.
             forgetting_coef=self.config.memory.EXPIRE_LOSS_COEF / self.config.memory.RAMP if self.expire_forget else 0,
+            attscore_loss_coef=self.config.memory.ATTSCORE_LOSS_COEF,
             lr=ppo_cfg.lr,
             eps=ppo_cfg.eps,
             max_grad_norm=ppo_cfg.max_grad_norm,
@@ -219,7 +228,7 @@ class PPOTrainer_Memory(BaseRLTrainer):
             "state_dict": self.agent.state_dict(),
             "config": self.config,
         }
-        if self.with_env_global_node:
+        if self.create_env_global_node:
             checkpoint["env_global_node"] = self.env_global_node
 
         if extra_state is not None:
@@ -331,8 +340,8 @@ class PPOTrainer_Memory(BaseRLTrainer):
         if preds is not None:
             pred1, pred2 = preds
 
-            have_been = F.sigmoid(pred1[:,:]).detach().cpu().numpy().tolist() if pred1 is not None else None
-            pred_target_distance = F.sigmoid(pred2[:,:]).detach().cpu().numpy().tolist() if pred2 is not None else None
+            have_been = torch.sigmoid(pred1[:,:]).detach().cpu().numpy().tolist() if pred1 is not None else None
+            pred_target_distance = torch.sigmoid(pred2[:,:]).detach().cpu().numpy().tolist() if pred2 is not None else None
 
             log_strs = []
             for i in range(len(actions)):
@@ -409,6 +418,7 @@ class PPOTrainer_Memory(BaseRLTrainer):
             rewards[:self.num_processes],
             masks[:self.num_processes],
             env_global_node[:self.num_processes] if env_global_node is not None else None,
+            self.last_observations['attscores_gt'][:self.num_processes] if self.supervise_attscores else None,
             #span_loss[:self.num_processes] if self.expire_forget else None,
         )
 
@@ -448,7 +458,8 @@ class PPOTrainer_Memory(BaseRLTrainer):
         )
 
         # this update uses a batch size different from that in _collect_rollout_step()
-        value_loss, action_loss, span_loss, dist_entropy, unexp_loss, targ_loss = self.agent.update(rollouts) # PPO.update()
+        # other_losses contains these keys: span_loss, attscore_loss
+        value_loss, action_loss, dist_entropy, unexp_loss, targ_loss, other_losses = self.agent.update(rollouts) # PPO.update()
 
         rollouts.after_update()
 
@@ -456,9 +467,8 @@ class PPOTrainer_Memory(BaseRLTrainer):
             time.time() - t_update_model,
             value_loss,
             action_loss,
-            span_loss,
             dist_entropy,
-            [unexp_loss, targ_loss]
+            {'unexp_loss': unexp_loss, 'targ_loss': targ_loss, **other_losses}
         )
 
     def train(self, debug=False) -> None:
@@ -508,7 +518,8 @@ class PPOTrainer_Memory(BaseRLTrainer):
             self.envs.observation_spaces[0],
             self.envs.action_spaces[0],
             ppo_cfg.hidden_size,
-            global_node_feat_size= global_node_featdim if self.with_env_global_node else 0, # used for global node
+            global_node_feat_size= global_node_featdim if self.create_env_global_node else 0, # used for global node
+            supervise_attscores=self.config.memory.ATTSCORE_LOSS_COEF != 0,
             num_recurrent_layers=self.actor_critic.net.num_recurrent_layers,
             OBS_LIST=OBS_LIST,
         )
@@ -529,7 +540,7 @@ class PPOTrainer_Memory(BaseRLTrainer):
         self.last_prev_actions = torch.zeros(total_processes, rollouts.prev_actions.shape[-1]).to(self.device)
         self.last_masks = torch.zeros(total_processes, 1).to(self.device)
 
-        if self.with_env_global_node:
+        if self.create_env_global_node:
             if not hasattr(self, "env_global_node"):
                 print('[ppo_trainer_memory] failed to detect the env global node. A new one will be created\n')
                 self.env_global_node = torch.randn(1, global_node_featdim) if self.randominit_env_global_node else torch.zeros(1, global_node_featdim)
@@ -584,7 +595,7 @@ class PPOTrainer_Memory(BaseRLTrainer):
 
                 # Since the agent (VGMPolicy) does not know the batch size in advance, we need to repeat the global node on the fly according to the batch size
                 # For details, see line 207 in perception.py
-                # if self.with_env_global_node:
+                # if self.create_env_global_node:
                 #     self.agent.actor_critic.net.perception_unit.repeat_global_node_batchsize(num_train_processes)
 
                 # collect num_steps steps in each navigation process
@@ -609,17 +620,18 @@ class PPOTrainer_Memory(BaseRLTrainer):
                     delta_pth_time,
                     value_loss,
                     action_loss,
-                    span_loss, # it is non-zero if forgetting mechanism is used
                     dist_entropy,
-                    otherlosses
+                    otherlosses # a dict contain two aux tasks, span loss and attscore loss.
                 ) = self._update_agent(ppo_cfg, rollouts)
 
                 # reset env global node after update
-                if self.with_env_global_node:
-                    if self.respawn_env_global_node:
+                if self.create_env_global_node:
+                    if self.global_node_mode == "respawn":
                         self.env_global_node = torch.randn(1, global_node_featdim) if self.randominit_env_global_node else torch.zeros(1, global_node_featdim)
-                    else:
+                    elif self.global_node_mode == "no_respawn":
                         self.env_global_node = self.last_env_global_node.mean(0)
+                    else:
+                        assert False, "[ppo_trainer_memory] Unknown global node mode!\n"
                     
                     self.last_env_global_node = self.env_global_node.unsqueeze(0).repeat(total_processes, 1, 1).to(self.device) # total_processes x 1 x 512
                     rollouts.env_global_node_feat[0].copy_(self.last_env_global_node)
@@ -644,7 +656,7 @@ class PPOTrainer_Memory(BaseRLTrainer):
                 }
 
                 deltas["count"] = max(deltas["count"], 1.0)
-                losses = [value_loss, action_loss, span_loss, dist_entropy, otherlosses]
+                losses = [value_loss, action_loss, dist_entropy, otherlosses]
                 self.write_tb('train', writer, deltas, count_steps, losses)
                 
                 # NOTE: visualize the histogram of the expire-spans of all nodes
@@ -733,6 +745,7 @@ class PPOTrainer_Memory(BaseRLTrainer):
             self.envs.close()
 
     def write_tb(self, mode, writer, deltas, count_steps, losses=None):
+        # losses contains value_loss, action_loss, dist_entropy, otherlosses (a dict)
         writer.add_scalar(
             mode+"_reward", deltas["reward"] / deltas["count"], count_steps
         )
@@ -748,11 +761,12 @@ class PPOTrainer_Memory(BaseRLTrainer):
 
         if losses is not None:
             tb_dict = {}
-            for i, k in enumerate(["value", "policy", "expire-span", 'entropy']):
+            for i, k in enumerate(["value", "policy", 'entropy']):
                 tb_dict[k] = losses[i]
-            other_losses = ['unexp', 'target']
-            for i, k in enumerate(other_losses):
-                tb_dict[k] = losses[-1][i]
+
+            for k, v in losses[-1].items():
+                tb_dict[k] = v
+            
             if losses is not None:
                 writer.add_scalars(
                     "losses",

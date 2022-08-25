@@ -224,3 +224,13 @@ def observations_to_image(observation: Dict, info: Dict, mode='panoramic', local
         frame = np.concatenate((frame, top_down_map), axis=1) if frame is not None else top_down_map
 
     return frame
+
+def convert_points_to_topdown(pathfinder, points, meters_per_pixel):
+    points_topdown = []
+    bounds = pathfinder.get_bounds()
+    for point in points:
+        # convert 3D x,z to topdown x,y
+        px = (point[0] - bounds[0][0]) / meters_per_pixel
+        py = (point[2] - bounds[0][2]) / meters_per_pixel
+        points_topdown.append(np.array([px, py]))
+    return points_topdown

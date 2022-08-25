@@ -146,6 +146,8 @@ class SearchEnv(RLEnv):
             self.habitat_env.MIN_DIST, self.habitat_env.MAX_DIST = 5.0, 10.0
         elif config.DIFFICULTY == 'random':
             self.habitat_env.MIN_DIST, self.habitat_env.MAX_DIST = 1.5, 10.0
+        elif config.DIFFICULTY == '1goal':
+            self.habitat_env.MIN_DIST, self.habitat_env.MAX_DIST = 1.5, 10.0
         elif config.DIFFICULTY == '2goal':
             self.habitat_env.MIN_DIST, self.habitat_env.MAX_DIST = 10.0, 15.0
         elif config.DIFFICULTY == '3goal':
@@ -486,6 +488,8 @@ class SearchEnv(RLEnv):
         
 
     def render_simple_traj(self, render_traj=False, waypoint_pose=None, att_features=None, forget_node_indices=None):
+        # waypoint_pose contains the nodes in the topological map
+        # self.positions contains fine-grained way points on the agent's trajectory
         img = maps.get_topdown_map(self.habitat_env.sim.pathfinder, height=self.positions[0][1], meters_per_pixel=self.meters_per_pixel)
         img = self.recolor_map[img]
         

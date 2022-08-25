@@ -64,7 +64,7 @@ class BC_trainer(nn.Module):
         for t in range(T):
             masks = lengths > t
             if t == 0: masks[:] = False
-            target_goal = target_img[torch.range(0,self.B-1).long(), targets[:,t].long()]
+            target_goal = target_img[torch.arange(0,self.B).long(), targets[:,t].long()]
             pose_t = positions[:,t]
             obs_t = self.env_wrapper.step([demo_rgb[:,t], demo_depth[:,t], pose_t, target_goal, torch.ones(self.B, device=self.torch_device)*t, (~masks).detach().cpu().numpy()])
 

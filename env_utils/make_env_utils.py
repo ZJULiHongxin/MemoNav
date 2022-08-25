@@ -186,7 +186,7 @@ def construct_envs(config,env_class, mode='vectorenv', make_env_fn=make_env_fn, 
             ),
         )
 
-        envs = eval(configs[0].WRAPPER)(envs, configs[0])
+        envs = eval(configs[0].WRAPPER)(envs, configs[0]) # GraphWrapper
         print('[make_env_utils] Using Vector Env Wrapper - ', configs[0].WRAPPER)
     else:
         envs = make_env_fn(configs[0] ,env_class, 0, { 'run_type': run_type})

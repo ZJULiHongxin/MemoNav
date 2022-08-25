@@ -1,20 +1,17 @@
-from cmath import inf
-from curses import noecho
-from distutils.command.config import config
-import sys
-from tkinter.messagebox import NO
-from wsgiref.validate import InputWrapper
+
+from pickle import HIGHEST_PROTOCOL
+import sys, os
 if '/opt/ros/kinetic/lib/python2.7/dist-packages' in sys.path:
     sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
 import argparse
 import imageio
 from copy import deepcopy, copy
-import json
+import json, gzip
 import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
-
-import datetime
+import datetime, time
+import quaternion as q
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=1)
@@ -23,9 +20,9 @@ parser.add_argument("--version", type=str, default="", help="exp name")
 parser.add_argument("--gpu", type=str, default="0,0", help="Simulation and evaluation GPU IDs")
 parser.add_argument("--stop", action='store_true', default=False)
 parser.add_argument("--forget", action='store_true', default=False)
-parser.add_argument("--diff", choices=['random', 'easy', 'medium', 'hard', '2goal', '3goal', '4goal'], default='hard')
+parser.add_argument("--diff", choices=['random', 'easy', 'medium', 'hard', '1goal', '2goal', '3goal', '4goal'], default='hard')
 parser.add_argument("--dataset", choices=['gibson', 'mp3d'], default='gibson')
-parser.add_argument("--split", choices=['val', 'train', 'min_val'], default='val')
+parser.add_argument("--split", choices=['val', 'train', 'test'], default='val')
 parser.add_argument('--eval-ckpt', type=str, required=True)
 parser.add_argument('--render', action='store_true', default=False)
 # 0: no record; 1: only official traj rendering
@@ -40,14 +37,16 @@ parser.add_argument('--record-dir', type=str, default='data/video_dir')
 args = parser.parse_args()
 args.record = int(args.record)
 args.th = float(args.th)
-import os
+
 # if args.gpu != 'cpu':
 #     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 os.environ['GLOG_minloglevel'] = "3"
 os.environ['MAGNUM_LOG'] = "quiet"
 os.environ['HABITAT_SIM_LOG'] = "quiet"
+
 import numpy as np
 import torch
+import cv2
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 if args.gpu != 'cpu':
@@ -58,37 +57,33 @@ torch.set_num_threads(5)
 from env_utils.make_env_utils import add_panoramic_camera
 import habitat
 from habitat import make_dataset
+from habitat_sim.utils.common import quat_from_coeffs
+from habitat.tasks.nav.nav import NavigationEpisode, NavigationGoal
 from env_utils.task_search_env import SearchEnv, MultiSearchEnv
 from configs.default import get_config, CN
-import time
-import cv2
-import gzip
-import quaternion as q
+from runner import *
+
 
 # flags for special experiments
 STEP_HISTOGRAM = False
 ATT_HISTOGRAM = False
-LTM_STABILITY = False
+HIGHSCORE_RATIO = False
+RANDOM_AGENT = False
 
-multi_goal_val_dir = "image-goal-nav-dataset/val_{}/*"
-val_dir = "image-goal-nav-dataset/val/*"
+"""
+Multigoal dirs:
+MP3D: test/2goal, test/3goal
+Gibson: val/2goal, val/3goal, val/4goal
+
+1-goal dirs:
+MP3D: test/1goal
+Gibson: val/1goal
+"""
+multi_goal_val_dir = "image-goal-nav-dataset/{}/{}/{}/*"
+val_dir = "image-goal-nav-dataset/{}/{}/{}/*"
 
 def get_eval_config(args):
     # args.diff can be ["easy", "medium", "hard", "2goal", "3goal", "4goal"]
-    dataset_dir = val_dir if 'goal' not in args.diff else multi_goal_val_dir.format(args.diff)
-    val_scene_ep_list = glob.glob(dataset_dir)
-
-    total_ep_num = 0
-    for scene_file in val_scene_ep_list:
-        with gzip.open(scene_file) as fp:
-            episode_list = json.loads(fp.read())
-        scene_name = scene_file.split('/')[-1][:-len('.json.gz')]
-        scene_ep_num = len([ep for ep in episode_list if 'goal' in args.diff or args.diff in ep['info']['difficulty']])
-        total_ep_num += scene_ep_num
-        print("{} contains {} episodes".format(scene_name, scene_ep_num))
-    
-    print("Diff %s Total %d eps"%(args.diff, total_ep_num))
-
     if args.dataset == "gibson":
         base_task = "configs/vistargetnav_gibson.yaml"
     elif args.dataset == "mp3d":
@@ -115,9 +110,29 @@ def get_eval_config(args):
     else:
         scenes = config.TASK_CONFIG.DATASET.CONTENT_SCENES
 
+    # Task episode dataset
+    dataset_dir = val_dir.format(args.dataset, args.split, args.diff if args.diff not in ['easy', 'medium', 'hard', 'extra'] else '1goal')
+    
+    val_scene_ep_list = glob.glob(dataset_dir)
+    print('\033[0;36;40mLoading episode dataset {}\033[0m\n'.format(dataset_dir))
+
+    total_ep_num = 0
+    for scene_file in val_scene_ep_list:
+        with gzip.open(scene_file) as fp:
+            episode_list = json.loads(fp.read())
+        scene_name = scene_file.split('/')[-1][:-len('.json.gz')]
+        scene_ep_num = len([ep for ep in episode_list if 'goal' in args.diff or args.diff in ep['info']['difficulty']])
+        total_ep_num += scene_ep_num
+        print("{} contains {} episodes".format(scene_name, scene_ep_num))
+    
+    print("Diff %s Total %d eps"%(args.diff, total_ep_num))
+
+    # task scene dataset
     config.TASK_CONFIG.DATASET.CONTENT_SCENES = scenes
     ep_per_env = int(np.ceil(total_ep_num / len(scenes)))
     config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.MAX_SCENE_REPEAT_EPISODES = ep_per_env
+    
+    # Action space
     if args.stop:
         config.ACTION_DIM = 4
         config.TASK_CONFIG.TASK.POSSIBLE_ACTIONS = ["STOP", "MOVE_FORWARD", "TURN_LEFT", "TURN_RIGHT"]
@@ -158,7 +173,7 @@ def load(ckpt):
         
         return (new_state_dict, env_global_node, ckpt_config)
 
-from runner import *
+
 #TODO: ADD runner in the config file e.g. config.runner = 'VGMRunner' or 'BaseRunner'
 def evaluate(eval_config, ckpt):
     if args.record > 0:
@@ -210,7 +225,7 @@ def evaluate(eval_config, ckpt):
     eval_config.render_map = args.record > 0 or args.render or 'hand' in args.config
 
     # Multi-goal testing is much more suitable for evaluating the performance of Forgetting MEchanism
-    if 'goal' in args.diff:
+    if args.diff in ['2goal', '3goal', '4goal']:
         eval_config.ENV_NAME = "MultiSearchEnv"
     
     eval_config.noisy_actuation = True
@@ -218,13 +233,6 @@ def evaluate(eval_config, ckpt):
 
     # VGMRunner
     runner = eval(eval_config.runner)(eval_config, env_global_node=env_global_node, return_features=True)
-
-    # for run time comparison
-    args1 = args
-    args1.config = './configs/vgm.yaml'
-    eval_config1 = get_eval_config(args1)
-    state_dict1, env_global_node, _ = load('./VGM_ILRL.pth')
-    runner1 = eval(eval_config.runner)(eval_config1, env_global_node=env_global_node, return_features=False)
 
     eval_info = ''
     eval_info += '=========================================\n'
@@ -235,7 +243,9 @@ def evaluate(eval_config, ckpt):
     eval_info += 'Num params: {}\n'.format(sum(param.numel() for param in runner.parameters()))
     eval_info += 'Difficulty: {}\n'.format(eval_config.DIFFICULTY)
     eval_info += 'Stop action: {}\n'.format('True' if eval_config.ACTION_DIM==4 else 'False')
-    eval_info += 'Env gloabl node: {}, link percentage: {}, random_replace: {}\n'.format(str(eval_config.GCN.WITH_ENV_GLOBAL_NODE), str(eval_config.GCN.ENV_GLOBAL_NODE_LINK_RANGE), str(eval_config.GCN.RANDOM_REPLACE))
+    eval_info += 'Env gloabl node mode: {}'.format(eval_config.GCN.ENV_GLOBAL_NODE_MODE)
+    if eval_config.GCN.ENV_GLOBAL_NODE_MODE != "unavailable":
+        eval_info += ', link percentage: {}, random_replace: {}\n'.format(str(eval_config.GCN.ENV_GLOBAL_NODE_LINK_RANGE), str(eval_config.GCN.RANDOM_REPLACE))
 
     if eval_config.memory.FORGET:
         num_forgotten_nodes = "{}%".format(int(100 * eval_config.memory.RANK_THRESHOLD)) if eval_config.memory.RANK_THRESHOLD < 1 else "{}".format(int(eval_config.memory.RANK_THRESHOLD))
@@ -265,12 +275,6 @@ def evaluate(eval_config, ckpt):
 
     runner.load(state_dict)
 
-    runner1.eval()
-    if torch.cuda.device_count() > 0:
-        device = torch.device("cuda:"+str(eval_config1.TORCH_GPU_ID))
-        runner1.to(device)
-    runner1.load(state_dict1)
-
     # Segmentation fault (core dumped) occurred here
     env = eval(eval_config.ENV_NAME)(eval_config) # SearchEnv in task_search_env.py
 
@@ -280,12 +284,11 @@ def evaluate(eval_config, ckpt):
     if runner.need_env_wrapper:
         env = runner.wrap_env(env,eval_config) # initialize a GraphWrapper in runner
 
-    val_scene_ep_list = glob.glob(val_dir if 'goal' not in args.diff.lower() else multi_goal_val_dir.format(args.diff))
+    val_scene_ep_list = glob.glob(val_dir.format(args.dataset, args.split, args.diff if args.diff not in ['easy', 'medium', 'hard', 'extra'] else '1goal'))
     
     global scene_ep_dict
     global self
-    from habitat_sim.utils.common import quat_from_coeffs
-
+    
     scene_ep_dict = {}
     total_ep_num = 0
     for scene_file in val_scene_ep_list:
@@ -296,8 +299,7 @@ def evaluate(eval_config, ckpt):
         scene_ep_dict[scene_name] = [ep for ep in episode_list if 'goal' in args.diff or args.diff in ep['info']['difficulty']]
         total_ep_num += len(scene_ep_dict[scene_name])
     print("Diff %s Total %d eps"%(args.diff, total_ep_num))
-
-    from habitat.tasks.nav.nav import NavigationEpisode, NavigationGoal
+    
     def next_episode(episode_id, scene_id):
         scene_name = scene_id.split('/')[-1][:-len('.glb')]
         if episode_id >= len(scene_ep_dict[scene_name]):
@@ -323,22 +325,18 @@ def evaluate(eval_config, ckpt):
     result['noisy_action'] = env.noise
     scene_dict = {}
     render_check = False
-    avg_decision_time, avg_decision_time1 = [0,0], [0,0]
+    avg_decision_time = [0,0]
     
-    done_type_list = ["success", "get stuck", "distance2goal is inf"]
-
     with torch.no_grad():
         ep_list = []
         total_success, total_spl, total_success_timesteps, each_ep_stepinfo = [], [], [], []
-        LTM_dist_dict = {}
         avg_decision_time_per_ep = [0, 0]
-        decision_time_stats, decision_time_stats1 = {}, {}
+        decision_time_stats = {}
         reached_goal_idx_stats = {}
         complete_success_lst = []
         node_num_dict = {}
         att_score_range = [0.2 * i for i in range(6)]
         att_score_histogram = {}
-        ent_avg = {}
         env.init_map_settings()
         
         # only for forgetting module
@@ -385,7 +383,6 @@ def evaluate(eval_config, ckpt):
                     render_check=True
             
             runner.reset()
-            runner1.reset()
 
             scene_name = env.current_episode.scene_id.split('/')[-1][:-4]
 
@@ -405,7 +402,7 @@ def evaluate(eval_config, ckpt):
             #     imgs = [img]
             #     waipoint_maps = []
             step = 0
-            ent_lst, LTM_dist_lst, imgs, waipoint_maps = [], [], [], []
+            imgs, waipoint_maps = [], []
             while True:
                 # Please copy waypoints before calling runner.step to obtain att_scores, since att_scores belong to old waypoints
                 waypoint_pose = copy(env.graph.node_position_list[0]) if args.record >= 3 else None
@@ -416,12 +413,16 @@ def evaluate(eval_config, ckpt):
                 #print(obs["target_goal"][0,:,:,0:3].max(), obs["target_goal"][0,:,:,0:3].min(), obs["target_goal"][0,:,:,0:3].dtype)
                 # cv2.imshow("2",obs["target_goal"][0,:,:,0:3].cpu().numpy())
                 # cv2.waitKey(5)
-                action, att_scores, decision_time, ent, LTM_dist = runner.step(obs, reward, done, info, env)
+                if RANDOM_AGENT == False:
+                    action, att_scores, decision_time = runner.step(obs, reward, done, info, env)
+                else:
+                    action, att_scores, decision_time = torch.randint(low=1,high=3, size=(1,)).item(), {"goal_attn": None, "GAT_attn": None, "curr_attn":None}, 0
+                    if env.get_dist(env.curr_goal.position) < env.success_distance: # Oracle stop
+                        action = 0
+                    
                 #print(type(action))
                 avg_decision_time_per_ep[0] += decision_time
                 avg_decision_time_per_ep[1] += 1
-
-                _,_,decision_time1,_,_ = runner1.step(obs, reward, done, info, env)
 
                 num_nodes = int(obs['global_mask'].sum().item())
                 #print('step:',step,'num nodes', num_nodes)
@@ -430,16 +431,7 @@ def evaluate(eval_config, ckpt):
                 else:
                     decision_time_stats[num_nodes][0] += decision_time
                     decision_time_stats[num_nodes][1] += 1
-                
-                if decision_time_stats1.get(num_nodes, None) is None:
-                    decision_time_stats1[num_nodes] = [decision_time1, 1]
-                else:
-                    decision_time_stats1[num_nodes][0] += decision_time1
-                    decision_time_stats1[num_nodes][1] += 1
 
-                # NOTE: this two lines is used to conduct exp in the supp
-                ent_lst.append(ent.item())
-                LTM_dist_lst.append(LTM_dist)
                 # Forget some less important nodes
                 # att_scores is a dict {'goal_attn': 1 x num_nodes, 'curr_attn': 1 x num_nodes, 'GAT_attn'}
                 forget_node_indices = env.forget_node(
@@ -447,6 +439,12 @@ def evaluate(eval_config, ckpt):
                     num_nodes=obs['global_mask'].sum(dim=1),
                     att_type=attn_choice)
                 
+                # if HIGHSCORE_RATIO:
+                #     node_num = obs['global_mask'].sum(dim=1)[0].int()
+                #     att_scores_1 = att_scores[0, -node_num:]
+                #     top20_idxs = torch.argsort(att_scores_1, dim=0, descending=True)[0:int(0.2 * node_num)]
+                #     for node_id in top_idxs:
+
                 #print(step, ': action ', action)
                 # info is a dict containing ['goal_index', 'num_goals', 'distance_to_goal', 'success', 'spl', 'collisions', 'done_type', 'length', 'episode', 'step']
                 obs, reward, done, info = env.step(action) # Graph_wrapper.step()
@@ -585,13 +583,12 @@ def evaluate(eval_config, ckpt):
                                 writer.append_data(im.astype(np.uint8))
                             writer.close()
 
-            print('[{:04d}/{:04d}] {} success {:.4f}, spl {:.4f}, steps {:.2f}, ent {:.4f}, final_reached_goal_idx {} || total success {:.4f}, spl {:.4f}, success time step {:.2f}, avg decision time {:.4f}s'.format(episode_id,
+            print('[{:04d}/{:04d}] {} success {:.4f}, spl {:.4f}, steps {:.2f}, final_reached_goal_idx {} || total success {:.4f}, spl {:.4f}, success time step {:.2f}, avg decision time {:.4f}s'.format(episode_id,
                                                           test_num,
                                                           scene_name,
                                                           info['success'],
                                                           spl,
                                                           step,
-                                                          sum(ent_lst) / len(ent_lst),
                                                           final_reached_goal_idx,
                                                           np.array(total_success).mean(),
                                                           np.array(total_spl).mean(),
@@ -599,15 +596,9 @@ def evaluate(eval_config, ckpt):
                                                           avg_decision_time_per_ep[0] / avg_decision_time_per_ep[1],
                                                           ))
 
-            if ent_avg.get(scene_name, None) is None:
-                    ent_avg[scene_name] = [0, 0]
-            ent_avg[scene_name][0] += sum(ent_lst) / len(ent_lst)
-            ent_avg[scene_name][1] += 1
-
             avg_decision_time[0] += avg_decision_time_per_ep[0]
             avg_decision_time[1] += avg_decision_time_per_ep[1]
 
-            LTM_dist_dict[scene_name+str(episode_id)] = LTM_dist_lst
             #if episode_id == 5: break
     
     result['eval_info'] = eval_info
@@ -628,12 +619,6 @@ def evaluate(eval_config, ckpt):
         print('SCENE %s: success %.4f, spl %.4f, avg steps %.2f, avg node num %.1f'%(scene_name, mean_success,mean_spl, mean_step, mean_node_num))
         success.extend(scene_dict[scene_name]['success'])
         spl.extend(scene_dict[scene_name]['spl'])
-    
-    # NOTE: delete this print
-    for k in ent_avg.keys():
-        ent_avg[k][0] = ent_avg[k][0] / ent_avg[k][1]
-    print('Avg entropy for each scene:\n', ent_avg)
-    print('Avg entropy over all: {:.4f}\n'.format(np.array(list(ent_avg.values())).mean()))
 
     result['avg_success'] = np.array(success).mean().item()
     result['avg_spl'] = np.array(spl).mean().item()
@@ -642,7 +627,6 @@ def evaluate(eval_config, ckpt):
     result['avg_decision_time'] = avg_decision_time[0] / avg_decision_time[1]
     result['reached_goal_idx_stats'] = reached_goal_idx_stats
     result['complete_success_ep'] = complete_success_lst
-    result['LTM_dist'] = LTM_dist_dict
     if len(att_score_histogram) > 0:
         result['att_score_histogram'] = {'hist_attn_type': hist_attn_type,
                                         'ranges': att_score_range,
@@ -651,13 +635,8 @@ def evaluate(eval_config, ckpt):
     decision_time = {}
     for k in decision_time_stats.keys():
         decision_time[k] = decision_time_stats[k][0] / decision_time_stats[k][1]
-    
-    decision_time1 = {}
-    for k in decision_time_stats1.keys():
-        decision_time1[k] = decision_time_stats1[k][0] / decision_time_stats1[k][1]
 
     result['decision_time_stats'] = decision_time # stores the time used by the Policy.act() compared with the different number of nodes contained in the topological map  
-    result['decision_time_stats1'] = decision_time1
     print('================================================')
     print('avg success : %.4f'%result['avg_success'])
     print('avg spl : %.4f'%result['avg_spl'])
@@ -714,19 +693,15 @@ if __name__=='__main__':
             for num_node in result['decision_time_stats'].keys():
                 lines.append("{}: {:.4f}\n".format(num_node, result['decision_time_stats'][num_node]))
             
-            lines.append("\nDecision time [sec] of VGM:\n")
-            for num_node in result['decision_time_stats1'].keys():
-                lines.append("{}: {:.4f}\n".format(num_node, result['decision_time_stats1'][num_node]))
-
             lines.append("\nHow many goals the agent reached successfully:\n")
             for num_goal in result['reached_goal_idx_stats']:
                 lines.append("{} goals: {} episodes\n".format(num_goal, result['reached_goal_idx_stats'][num_goal]))
             
-            if result.get('att_score_histogram', None) is not None:
-                lines.append("\nThe histogram of {} scores:\n".format(result['att_score_histogram']['hist_attn_type']))
-                lines.append("Ranges: {}\n".format(', '.join(['{:.1f}'.format(x) for x in result['att_score_histogram']['ranges']])))
-                for scene_name, hist in result['att_score_histogram']['histogram'].items():
-                    lines.append("{}: {}\n".format(scene_name, str(hist)))
+            # if result.get('att_score_histogram', None) is not None:
+            #     lines.append("\nThe histogram of {} scores:\n".format(result['att_score_histogram']['hist_attn_type']))
+            #     lines.append("Ranges: {}\n".format(', '.join(['{:.1f}'.format(x) for x in result['att_score_histogram']['ranges']])))
+            #     for scene_name, hist in result['att_score_histogram']['histogram'].items():
+            #         lines.append("{}: {}\n".format(scene_name, str(hist)))
             
             lines.append("\nCompletely successful episodes:\n")
             for ep in result['complete_success_ep']:
@@ -744,20 +719,6 @@ if __name__=='__main__':
                 f.writelines(lines)
             print("save step info results to", step_each_ep_txt)
 
-        # LTM variations
-        if LTM_STABILITY:
-            LTM_dist_dict = result['LTM_dist']
-            tick_font_size = 15
-            img_dir = os.path.join(this_exp_dir, 'LTM')
-            if not os.path.exists(img_dir): os.mkdir(img_dir)
-
-            for ep, lst in LTM_dist_dict.items():
-                plt.plot(list(range(1,len(lst)+1)), lst)
-                plt.xlabel('Time step', fontsize=tick_font_size)
-                plt.ylabel('L2 distance', fontsize=tick_font_size)
-                plt.title(ep)
-                plt.savefig(os.path.join(img_dir, '{}.png'.format(ep)), dpi=300)
-                plt.clf()
         
         # detailed eval results
         eval_data_name = os.path.join(this_exp_dir, '{}_{}_{}.dat.gz'.format(cfg.VERSION, ckpt_name, args.diff))

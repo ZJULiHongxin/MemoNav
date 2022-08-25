@@ -111,8 +111,8 @@ def train():
         # os.makedirs(SAVE_DIR, exist_ok=True)
         # os.makedirs(LOG_DIR, exist_ok=True)
 
-    with_env_global_node = config.GCN.WITH_ENV_GLOBAL_NODE
-    respawn_env_global_node = config.GCN.RESPAWN_GLOBAL_NODE
+    create_env_global_node = config.GCN.ENV_GLOBAL_NODE_MODE in ["respawn", "no_respawn"]
+    respawn_env_global_node = config.GCN.ENV_GLOBAL_NODE_MODE == "respawn"
     randominit_env_global_node = config.GCN.RANDOMINIT_ENV_GLOBAL_NODE
     global_node_featdim = config.features.visual_feature_dim
 
@@ -127,7 +127,7 @@ def train():
 
     # create or load an env global node
     env_global_node = None
-    if with_env_global_node:
+    if create_env_global_node:
         if args.resume != 'none':
             env_global_node = sd.get(
             'env_global_node', None
@@ -168,7 +168,7 @@ def train():
         loss_summary_dict = {}
         
         for batch in train_iter:
-            if with_env_global_node:
+            if create_env_global_node:
                 env_global_node = env_global_node.unsqueeze(0).repeat(batch[0].shape[0], 1, 1).to(device) # NUM_PROCESSES x 1 x 512
 
             results, loss_dict, new_env_global_node = trainer(batch, env_global_node)
@@ -216,7 +216,7 @@ def train():
                             batch = next(valid_iter)
 
                         eval_env_global_node = None
-                        if with_env_global_node:
+                        if create_env_global_node:
                             if respawn_env_global_node:
                                 eval_env_global_node = torch.randn(1, 1, global_node_featdim) if randominit_env_global_node else torch.zeros(1, 1, global_node_featdim)
                             else:
@@ -250,7 +250,7 @@ def train():
             
             step += 1
             
-            if with_env_global_node:
+            if create_env_global_node:
                 if respawn_env_global_node: # reset env global node to 
                     env_global_node = torch.randn(1, global_node_featdim) if randominit_env_global_node else torch.zeros(1, global_node_featdim)
                 else:

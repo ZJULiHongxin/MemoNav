@@ -49,15 +49,14 @@ class VGMRunner(BaseRunner):
         self.num_agents = 1
 
         # settings of global node
-        with_env_global_node = config.GCN.WITH_ENV_GLOBAL_NODE
-        respawn_env_global_node = config.GCN.RESPAWN_GLOBAL_NODE
+        env_global_node_mode = config.GCN.ENV_GLOBAL_NODE_MODE
         randominit_env_global_node = config.GCN.RANDOMINIT_ENV_GLOBAL_NODE
         global_node_featdim = config.features.visual_feature_dim
 
         self._env_global_node = env_global_node # the original copy of env global node
 
-        if with_env_global_node:
-            if respawn_env_global_node:
+        if env_global_node_mode in ['no_respawn', 'respawn']:
+            if env_global_node_mode == 'respawn':
                 self._env_global_node = torch.randn(1, global_node_featdim) if randominit_env_global_node else torch.zeros(1, global_node_featdim)
             self.env_global_node = self._env_global_node.unsqueeze(0)
 
@@ -129,7 +128,7 @@ class VGMRunner(BaseRunner):
             actions,
             actions_log_probs,
             hidden_states,
-            new_env_global_node,
+            new_env_global_node, # may be None
             actions_logits,
             preds,
             att_features # may be None
@@ -160,12 +159,11 @@ class VGMRunner(BaseRunner):
         # log_str = have_been_str + ' ' + pred_dist_str
         # self.env.log_info(log_type='str', info=log_str)
         self.hidden_states = hidden_states
-        LTM_dist = torch.norm(new_env_global_node-self.env_global_node).item() if new_env_global_node is not None else None
         self.env_global_node = new_env_global_node
         self.actions = actions # store the previous action
         self.time_t += 1
 
-        return self.actions.item(), att_features, decision_time, actions_logits, LTM_dist
+        return self.actions.item(), att_features, decision_time
 
     def visualize(self, env_img):
         return NotImplementedError

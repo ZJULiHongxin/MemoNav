@@ -1,10 +1,12 @@
 from gym.wrappers.monitor import Wrapper
 from gym.spaces.box import Box
+import habitat_sim
 import torch
+import math
 import numpy as np
 from utils.ob_utils import log_time
-TIME_DEBUG = False
 from utils.ob_utils import batch_obs
+from utils.vis_utils import convert_points_to_topdown
 import torch.nn as nn
 import torch.nn.functional as F
 from model.PCL.resnet_pcl import resnet18
@@ -18,7 +20,7 @@ class GraphWrapper(Wrapper):
     metadata = {'render.modes': ['rgb_array']}
     def __init__(self,envs, exp_config):
         self.exp_config = exp_config
-        self.envs = envs # SearchEnv or MultiSearchEnv inherited from RLEnv inherited from gym.Env
+        self.envs = envs # VectorEnv
         self.env = self.envs
         if isinstance(envs,VectorEnv):
             self.is_vector_env = True
@@ -34,14 +36,14 @@ class GraphWrapper(Wrapper):
         self.input_shape = (64, 256)
         self.feature_dim = 512
         self.torch = exp_config.TASK_CONFIG.SIMULATOR.HABITAT_SIM_V0.GPU_GPU
-        self.torch_device = 'cuda:' + str(exp_config.TORCH_GPU_ID) if torch.cuda.device_count() > 0 else 'cpu'
+        self.device = 'cuda:' + str(exp_config.TORCH_GPU_ID) if torch.cuda.device_count() > 0 else 'cpu'
 
         self.scene_data = exp_config.scene_data
 
         self.visual_encoder_type = 'unsupervised'
-        self.visual_encoder = self.load_visual_encoder(self.visual_encoder_type, self.input_shape, self.feature_dim).to(self.torch_device)
+        self.visual_encoder = self.load_visual_encoder(self.visual_encoder_type, self.input_shape, self.feature_dim).to(self.device)
         self.th = getattr(exp_config, 'graph_th', 0.75)
-        self.graph = Graph(exp_config, self.B, self.torch_device)
+        self.graph = Graph(exp_config, self.B, self.device)
         self.need_goal_embedding = 'wo_Fvis' in exp_config.POLICY
  
         if isinstance(envs, VectorEnv):
@@ -66,6 +68,13 @@ class GraphWrapper(Wrapper):
         self.forget = self.exp_config.memory.FORGET and self.exp_config.memory.FORGETTING_TYPE == "simple"
         self.forgetting_recorder = None
         self.forget_node_indices = None
+        
+        self.supervise_attscores = self.exp_config.memory.ATTSCORE_LOSS_COEF != 0
+            
+        # if self.supervise_attscores:
+        #     self.path_finder = self.envs.habitat_env.sim.pathfinder
+        #     self.path = habitat_sim.ShortestPath()
+        #     self.meters_per_pixel = 0.01
 
         self.reset_all_memory()
     
@@ -85,8 +94,8 @@ class GraphWrapper(Wrapper):
         if self.forget:
             self.start_to_forget = self.exp_config.memory.TOLERANCE
             self.rank_type = self.exp_config.memory.RANK
-            self.forgetting_recorder = torch.zeros(self.B, self.graph.M, self.start_to_forget, dtype=bool, device=self.torch_device)
-            self.forget_node_indices = torch.ones(self.B, self.graph.M, device=self.torch_device)
+            self.forgetting_recorder = torch.zeros(self.B, self.graph.M, self.start_to_forget, dtype=bool, device=self.device)
+            self.forget_node_indices = torch.ones(self.B, self.graph.M, device=self.device)
 
             self.cur = 0
             self.forget_th = self.exp_config.memory.RANK_THRESHOLD
@@ -128,7 +137,7 @@ class GraphWrapper(Wrapper):
         check_list[range(self.B), self.graph.last_localized_node_idx.long()] = 1.0
 
         check_list[found_batch_indices] = 1.0
-        check_list
+
         to_add = torch.zeros(self.B)
         hop = 1
         max_hop = 0
@@ -230,9 +239,17 @@ class GraphWrapper(Wrapper):
         if self.need_goal_embedding:
             obs_batch['goal_embedding'] = self.embed_target(obs_batch)
         return obs_batch
+    
+    def _get_waypoint_scores(self, waypoints, goals):
+        attscores_gt = torch.zeros((self.exp_config.NUM_PROCESSES, self.exp_config.memory.memory_size), device=self.device)
+
+        for b in range(self.B):
+            geodist_lst = torch.linalg.norm(torch.tensor(waypoints[b], device=self.device) - goals[b], dim=-1)
+            attscores_gt[b,:len(waypoints[b])] = F.softmin(geodist_lst, dim=0)
+
+        return attscores_gt
 
     def step(self, actions):
-
         if self.is_vector_env:
             dict_actions = [{'action': actions[b]} for b in range(self.B)]
             outputs = self.envs.step(dict_actions)
@@ -240,12 +257,18 @@ class GraphWrapper(Wrapper):
             outputs = [self.envs.step(actions)]
 
         obs_list, reward_list, done_list, info_list = [list(x) for x in zip(*outputs)]
-        obs_batch = batch_obs(obs_list, device=self.torch_device)
+
+        obs_batch = batch_obs(obs_list, device=self.device)
 
         curr_vis_embedding = self.embed_obs(obs_batch)
         self.localize(curr_vis_embedding, obs_batch['position'].detach().cpu().numpy(), obs_batch['step'], done_list)
 
         global_memory_dict = self.get_global_memory()
+
+        # impose explicit supervision on the att. scores in Dec_target
+        if self.supervise_attscores:
+            obs_batch['attscores_gt'] = self._get_waypoint_scores(self.graph.node_position_list, obs_batch['target_pose'].unsqueeze(1))
+            
         obs_batch = self.update_obs(obs_batch, global_memory_dict)
         self.update_graph()
 
@@ -265,18 +288,20 @@ class GraphWrapper(Wrapper):
     def reset(self):
         obs_list = self.envs.reset()
         if not self.is_vector_env: obs_list = [obs_list]
-        obs_batch = batch_obs(obs_list, device=self.torch_device)
+        obs_batch = batch_obs(obs_list, device=self.device)
         curr_vis_embeddings = self.embed_obs(obs_batch)
         if self.need_goal_embedding: obs_batch['curr_embedding'] = curr_vis_embeddings
         # posiitons are obtained by calling habitat_env.sim.get_agent_state().position
         self.localize(curr_vis_embeddings, obs_batch['position'].detach().cpu().numpy(), obs_batch['step'], [True]*self.B)
 
         if self.forget:
-            self.forgetting_recorder = torch.zeros(self.B, self.graph.M, self.start_to_forget, dtype=bool, device=self.torch_device)
+            self.forgetting_recorder = torch.zeros(self.B, self.graph.M, self.start_to_forget, dtype=bool, device=self.device)
             #self.forget_node_indices = set()
-            self.forget_node_indices = torch.ones(self.B, self.graph.M, device=self.torch_device)
+            self.forget_node_indices = torch.ones(self.B, self.graph.M, device=self.device)
         global_memory_dict = self.get_global_memory()
 
+        if self.supervise_attscores:
+            obs_batch['attscores_gt'] = self._get_waypoint_scores(self.graph.node_position_list, obs_batch['target_pose'].unsqueeze(1))
         # obs_batch contains following keys:
         # ['rgb_0'~'rgb_11', 'depth_0'~'depth_11', 'panoramic_rgb', 'panoramic_depth',
         # 'target_goal', 'episode_id', 'step', 'position', 'rotation', 'target_pose', 'distance', 'have_been',
@@ -333,15 +358,14 @@ class GraphWrapper(Wrapper):
         return forget_node_indices
 
     def forget_node_transformer(self, att_scores, num_nodes):
-        # NOTE: This method only supports single-batch input
         # att_scores: B(1) x max_num_nodes      it may contain the score of the global node
-        # num_nodes: B(1)
+        # num_nodes: B(1), it is used to exclude the global node
         if not self.forget: return
         #print('\n',att_scores)
         B = att_scores.shape[0]
         for b in range(B):
             num_node = num_nodes[b].int()
-            att_scores_b = att_scores[b, -num_node:]
+            att_scores_b = att_scores[b, -num_node:] # exclude the global node if it exists
 
         #print(att_scores)
         # att_scores: B x 1 x num_nodes
@@ -355,6 +379,7 @@ class GraphWrapper(Wrapper):
             elif self.rank_type=="top":
                 keep_num = int(self.forget_th * num_node) + 1 if self.forget_th < 1 else int(self.forget_th) # + 1 means rounding up
                 forget_range = torch.arange(0, max(num_node - keep_num, 0))
+                #forget_range = torch.arange(max(num_node - keep_num, 0), num_node) # for ablation (forget top 20%)
 
             # print('keep_num', keep_num)
             # print('forget_range',att_scores_b.shape, forget_range)
@@ -424,7 +449,6 @@ class GraphWrapper(Wrapper):
         return forget_node_indices
 
     def get_global_memory(self, mode='feature'):
-        self.graph
         global_memory_dict = {
             'global_memory': self.graph.graph_memory,
             'global_act_memory': self.graph.graph_act_memory,

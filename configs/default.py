@@ -39,7 +39,7 @@ _C.NUM_VAL_PROCESSES = 0
 
 _C.SENSORS = ["RGB_SENSOR", "DEPTH_SENSOR"]
 
-_C.NUM_UPDATES = 100000000
+_C.NUM_UPDATES = 10800000
 _C.LOG_INTERVAL = 10
 _C.LOG_FILE = "train.log"
 _C.CHECKPOINT_INTERVAL = 50
@@ -74,11 +74,9 @@ _C.GCN = CN()
 _C.GCN.TYPE = "GCN" # "GAT", "GATv2"
 _C.GCN.GRAPH_NORM = "" # "graph_norm"
 _C.GCN.NUM_LAYERS = 3
-_C.GCN.WITH_ENV_GLOBAL_NODE = False
-
+_C.GCN.ENV_GLOBAL_NODE_MODE = "unavailable" # "respawn", "no_respawn", "embedding", "unavailable"
 _C.GCN.RANDOMINIT_ENV_GLOBAL_NODE = False # if false, initialize the env global node as a zero vector
 _C.GCN.WITH_CUROBS_GLOBAL_NODE = False
-_C.GCN.RESPAWN_GLOBAL_NODE = False # whether or not initialize all global nodes as zero vectors whenever a new navigation episode starts
 _C.GCN.ENV_GLOBAL_NODE_LINK_RANGE = -1.0 # How many nodes the global node link to. -1 means disabled. This variable is only used for ablation study. 
 _C.GCN.RANDOM_REPLACE = False
 # Fusion method
@@ -117,6 +115,8 @@ _C.memory.TOLERANCE = 10 # implement forgetting mechanism after TOLERANCE nodes 
 _C.memory.RANK = "bottom" # or "top"
 _C.memory.RANK_THRESHOLD = 0.2 # nodes whose att-scores remain in the bottom for several consecutive steps will be forgotten 
 _C.memory.RANDOM_SELECT = False # Whether or not add to randomly select graph nodes. This varibale is used for ablation
+# For explicit supervison on the att. score in Dec_target
+_C.memory.ATTSCORE_LOSS_COEF = 0.0
 
 _C.saving = CN()
 _C.saving.name = 'test'
