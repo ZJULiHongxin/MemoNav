@@ -1,3 +1,6 @@
 from env_utils.env_wrapper.env_graph_wrapper import GraphWrapper
+from env_utils.env_wrapper.stacked_memory_wrapper import StackedMemoryWrapper
+from env_utils.env_wrapper.fixed_memory_wrapper import FixedMemoryWrapper
+
 from env_utils.env_wrapper.env_wrapper import EnvWrapper
 

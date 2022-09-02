@@ -19,11 +19,13 @@ def _to_tensor(v):
     else:
         return torch.tensor(v, dtype=torch.float)
 
-def batch_obs(observations, device=None, need_list=[]):
+def batch_obs(observations, obs_to_save=None, device=None):
+
     batch = defaultdict(list)
     for obs in observations:
         for sensor in obs:
-            if isinstance(obs[sensor], dict): continue
+            # print(sensor)
+            if isinstance(obs[sensor], dict) or (obs_to_save is not None and sensor not in obs_to_save): continue
             batch[sensor].append(_to_tensor(obs[sensor]))
     for sensor in batch:
         batch[sensor] = (

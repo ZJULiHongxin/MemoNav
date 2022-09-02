@@ -33,7 +33,7 @@ memory:
   FORGET: False
   FORGETTING_TYPE: "simple"
   FORGETTING_ATTN: "goal" # "goal", "cur", "global_node" # default to "goal"
-  RANK: "top" # "top", "bottom"
+  RANK: "bottom" # "top", "bottom"
   RANK_THRESHOLD: 0.2
   TOLERANCE: 1
   RANDOM_SELECT: False # Default to False

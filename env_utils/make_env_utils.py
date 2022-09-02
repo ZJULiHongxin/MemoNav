@@ -6,7 +6,7 @@ from typing import Type, Union
 import habitat
 from habitat import Config, Env, RLEnv, make_dataset
 import habitat_sim
-
+from env_utils.env_wrapper import *
 
 import os
 
@@ -98,7 +98,7 @@ def add_panoramic_camera(task_config, normalize_depth=True, has_target=True):
     task_config.TASK.DISTANCE_TO_GOAL.TYPE = 'Custom_DistanceToGoal'
     return task_config
 
-from env_utils.env_wrapper import *
+
 def construct_envs(config,env_class, mode='vectorenv', make_env_fn=make_env_fn, run_type='train', no_val=False, fix_on_cpu=False):
 
     num_processes, num_val_processes = config.NUM_PROCESSES, config.NUM_VAL_PROCESSES
@@ -167,8 +167,21 @@ def construct_envs(config,env_class, mode='vectorenv', make_env_fn=make_env_fn, 
         task_config.DATASET.SPLIT = 'train' if i < num_processes else 'val'
         if len(training_scenes) > 0:
             task_config.DATASET.CONTENT_SCENES = scene_splits[i]
+        
+        use_compass = 'COMPASS_SENSOR' in task_config.TASK.SENSORS
+        use_gps = 'GPS_SENSOR' in task_config.TASK.SENSORS
+
         task_config = add_panoramic_camera(task_config,
                                            has_target='search' in proc_config.ENV_NAME.lower() or getattr(proc_config,'TASK_TYPE', True))
+
+        # add_panoramic_camera has reset SENSORS, so we re-add GPS and Compass sensors to SENSORS
+
+        if use_compass:
+            task_config.SIMULATOR.AGENT_0.SENSORS.append('COMPASS_SENSOR')
+            task_config.TASK.SENSORS.append('COMPASS_SENSOR')
+        if use_gps:
+            task_config.SIMULATOR.AGENT_0.SENSORS.append('GPS_SENSOR')
+            task_config.TASK.SENSORS.append('GPS_SENSOR')
 
         task_config.SIMULATOR.HABITAT_SIM_V0.GPU_DEVICE_ID = (
             config.SIMULATOR_GPU_ID

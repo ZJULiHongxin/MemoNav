@@ -26,9 +26,20 @@ WRAPPER: 'GraphWrapper'
 
 GCN:
   TYPE: "GATv2"
-  WITH_ENV_GLOBAL_NODE: True
+  ENV_GLOBAL_NODE_MODE: "resapwn"
+  RANDOMINIT_ENV_GLOBAL_NODE: False
   RANDOMINIT_ENV_GLOBAL_NODE: False
   RESPAWN_GLOBAL_NODE: True
+
+memory:
+  FORGET: False
+  FORGETTING_TYPE: "simple"
+  FORGETTING_ATTN: "goal" # "goal", "cur", "global_node" # default to "goal"
+  RANK: "bottom" # "top", "bottom"
+  RANK_THRESHOLD: 0.2
+  TOLERANCE: 1
+  RANDOM_SELECT: False # Default to False
+
 
 REWARD_METHOD: 'progress'
 USE_AUXILIARY_INFO: True
@@ -45,6 +56,6 @@ RL:
   PPO:
     num_mini_batch: 2
     num_steps: 256
-    rl_pretrained: False
-    il_pretrained: True
-    pretrained_weights: "data/new_checkpoints/GATv2_EnvGlobalNode_Respawn_ILRL_v2_IL/epoch0021iter20000.pt"
+    rl_pretrained: True
+    il_pretrained: False
+    pretrained_weights: "data/new_checkpoints/MemoNav_seed5_RL/ckpt44_frame9012224.pth"

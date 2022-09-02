@@ -114,6 +114,8 @@ class GraphWrapper(Wrapper):
 
         done = np.where(done_list)[0] # 一个参数np.where(arry)：输出arry中‘真’值的坐标(‘真’也可以理解为非零)
 
+        # 在采集256步的过程中，智能体一旦结束了一次导航，就会立即开始下一次。也就是说，这256步可能包含多次导航的经验
+        # 因此，这里检测到某个环境中导航结束，会重置拓扑地图，为下一次导航做好准备
         if len(done) > 0:
             for b in done:
                 self.graph.reset_at(b)

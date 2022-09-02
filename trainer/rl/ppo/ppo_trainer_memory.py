@@ -15,13 +15,13 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import LambdaLR
 
 from habitat import Config, logger
-from habitat_baselines.common.base_trainer import BaseRLTrainer
-from habitat_baselines.common.baseline_registry import baseline_registry
+from custom_habitat_baselines.common.base_trainer import BaseRLTrainer
+from custom_habitat_baselines.common.baseline_registry import baseline_registry
 from env_utils.make_env_utils import construct_envs
 from env_utils import *
-from habitat_baselines.common.rollout_storage import RolloutStorage
-from habitat_baselines.common.tensorboard_utils import TensorboardWriter
-from habitat_baselines.common.utils import (
+from custom_habitat_baselines.common.rollout_storage import RolloutStorage
+from custom_habitat_baselines.common.tensorboard_utils import TensorboardWriter
+from custom_habitat_baselines.common.utils import (
     batch_obs,
     linear_decay,
 )
@@ -30,7 +30,7 @@ from model.policy import *
 import pickle
 import time
 
-@baseline_registry.register_trainer(name="custom_ppo_memory")
+#@baseline_registry.register_trainer(name="custom_ppo_memory")
 class PPOTrainer_Memory(BaseRLTrainer):
     r"""Trainer class for PPO algorithm
     Paper: https://arxiv.org/abs/1707.06347.
@@ -315,6 +315,12 @@ class PPOTrainer_Memory(BaseRLTrainer):
         """
         VGMPolocy samples actions
         """
+        if 'SMT' in self.config.POLICY or 'CNNLSTM':
+            self.last_observations['panoramic_rgb_history'] = rollouts.observations['panoramic_rgb']
+            self.last_observations['panoramic_depth_history'] = rollouts.observations['panoramic_depth']
+            self.last_observations['gps_history'] = rollouts.observations['gps']
+            self.last_observations['compass_history'] = rollouts.observations['compass']
+            self.last_observations['prev_action_history'] = rollouts.prev_actions
 
         with torch.no_grad():
             (
@@ -408,7 +414,8 @@ class PPOTrainer_Memory(BaseRLTrainer):
         #     # calculate expiration span losses in advance to save GPU memories
         #     span_loss = (remaining_span * ramp_mask.float()).sum(dim=-1, keepdim=True) / self.expire_span_ramp * self.span_loss_coef  # B
 
-
+        # batch contains the following keys:
+        # ['panoramic_rgb', 'panoramic_depth', 'target_goal', 'compass', 'gps', 'step', 'have_been', 'target_dist_score', 'prev_action', 'curr_embedding', 'global_memory', 'goal_embedding', 'global_mask']
         rollouts.insert(
             {k: v[:self.num_processes] for k,v in batch.items() if k != 'forget_mask'},
             recurrent_hidden_states[:,:self.num_processes],
@@ -440,6 +447,13 @@ class PPOTrainer_Memory(BaseRLTrainer):
             last_observation = {
                 k: v[rollouts.step] for k, v in rollouts.observations.items()
             } # rollouts.observations contains dict_keys(['have_been', 'panoramic_depth': B (num_process) x 64 x 252 x 1, 'panoramic_rgb', 'step', 'target_dist_score', 'target_goal', 'global_memory', 'global_mask', 'global_A', 'global_time'])
+
+            if 'SMT' in self.config.POLICY or 'CNN' in self.config.POLICY:
+                last_observation['panoramic_rgb_history'] = rollouts.observations['panoramic_rgb']
+                last_observation['panoramic_depth_history'] = rollouts.observations['panoramic_depth']
+                last_observation['gps_history'] = rollouts.observations['gps']
+                last_observation['compass_history'] = rollouts.observations['compass']
+                last_observation['prev_action_history'] = rollouts.prev_actions
 
             # VGMPolicy.get_value
             next_value = self.actor_critic.get_value( 
@@ -534,7 +548,8 @@ class PPOTrainer_Memory(BaseRLTrainer):
             except:
                 print('error on copying observation : ', sensor, 'expected_size:', rollouts.observations[sensor][0].shape, 'actual_size:',batch[sensor][:num_train_processes].shape)
                 raise
-
+        
+        # input(batch['prev_action'].shape)
         self.last_observations = batch
         self.last_recurrent_hidden_states = torch.zeros(self.actor_critic.net.num_recurrent_layers, total_processes, ppo_cfg.hidden_size).to(self.device)
         self.last_prev_actions = torch.zeros(total_processes, rollouts.prev_actions.shape[-1]).to(self.device)
@@ -600,6 +615,7 @@ class PPOTrainer_Memory(BaseRLTrainer):
 
                 # collect num_steps steps in each navigation process
                 for _ in range(num_steps): # num_steps = 256
+                    #print('\033[0;36;40m[ppo] {}th update, collecting step...   \033[0m\n'.format(update))
                     #print("\n======collect=======")
                     # this invocation utilizes VGMPolicy to generate trajectories, so we need to repeat global nodes before the agent start to navigate
                     (
@@ -616,13 +632,15 @@ class PPOTrainer_Memory(BaseRLTrainer):
 
                 #print("\n======update=======")
                 # mix up all navigation steps, split them to mini-batches, and use each minibatch to train PPO
-                (
-                    delta_pth_time,
-                    value_loss,
-                    action_loss,
-                    dist_entropy,
-                    otherlosses # a dict contain two aux tasks, span loss and attscore loss.
-                ) = self._update_agent(ppo_cfg, rollouts)
+                #print('\033[0;36;40m[ppo] update agent\033[0m\n')
+                with torch.autograd.detect_anomaly():
+                    (
+                        delta_pth_time,
+                        value_loss,
+                        action_loss,
+                        dist_entropy,
+                        otherlosses # a dict contain two aux tasks, span loss and attscore loss.
+                    ) = self._update_agent(ppo_cfg, rollouts)
 
                 # reset env global node after update
                 if self.create_env_global_node:
@@ -741,7 +759,8 @@ class PPOTrainer_Memory(BaseRLTrainer):
                     )
                     count_checkpoints += 1
 
-
+                if count_steps > 10400000:
+                    break
             self.envs.close()
 
     def write_tb(self, mode, writer, deltas, count_steps, losses=None):

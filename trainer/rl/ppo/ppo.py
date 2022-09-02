@@ -94,6 +94,13 @@ class PPO(nn.Module):
                     adv_targ,
                 ) = sample
 
+                if hasattr(self.actor_critic, 'config') and ('SMT' in self.actor_critic.config.POLICY or 'CNN' in self.actor_critic.config.POLICY):
+                    obs_batch['panoramic_rgb_history'] = rollouts.observations['panoramic_rgb']
+                    obs_batch['panoramic_depth_history'] = rollouts.observations['panoramic_depth']
+                    obs_batch['gps_history'] = rollouts.observations['gps']
+                    obs_batch['compass_history'] = rollouts.observations['compass']
+                    obs_batch['prev_action_history'] = rollouts.prev_actions
+                
                 # Reshape to do in a single forward pass for all steps
                 (
                     values,

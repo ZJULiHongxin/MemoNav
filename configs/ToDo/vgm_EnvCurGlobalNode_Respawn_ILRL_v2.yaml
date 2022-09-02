@@ -1,0 +1,52 @@
+VERSION: vgm_EnvCurGlobalNode_Respawn_ILRL_v2
+runner: 'VGMRunner'
+scene_data: 'gibson'
+BASE_TASK_CONFIG_PATH: "configs/vistargetnav_gibson.yaml"
+IL_TRAINER_NAME: "BC_trainer"
+RL_TRAINER_NAME: "PPOTrainer_Memory_aux"
+ENV_NAME: "SearchEnv"
+
+SIMULATOR_GPU_ID: 0
+TORCH_GPU_ID: 5
+
+NUM_PROCESSES: 4
+NUM_VAL_PROCESSES: 0
+
+SENSORS: ["DEPTH_SENSOR", "RGB_SENSOR"]
+
+LOG_INTERVAL: 100
+CHECKPOINT_INTERVAL: 200
+VIS_INTERVAL: 200
+
+OBS_TO_SAVE: ['global_memory', 'global_mask', 'global_A', 'global_time',
+              'panoramic_rgb', 'panoramic_depth','goal_embedding', 'episode_info', 'target_goal',
+              'step', 'have_been', 'target_dist_score']
+POLICY: 'VGMPolicy'
+WRAPPER: 'GraphWrapper'
+
+GCN:
+  TYPE: "GCN"
+  NUM_LAYERS: 3
+  WITH_ENV_GLOBAL_NODE: True
+  WITH_CUROBS_GLOBAL_NODE: True
+  RANDOMINIT_ENV_GLOBAL_NODE: False
+  RESPAWN_GLOBAL_NODE: True
+
+REWARD_METHOD: 'progress'
+USE_AUXILIARY_INFO: True
+
+BC:
+  max_epoch: 100 # defalt to 100
+  batch_size: 16
+  num_workers: 8
+
+RL:
+  SUCCESS_REWARD: 10.0
+  SUCESS_MEASURE: 'SUCCESS'
+  SLACK_REWARD: -0.001
+  PPO:
+    num_mini_batch: 2
+    num_steps: 256
+    rl_pretrained: True
+    il_pretrained: False
+    pretrained_weights: "data/new_checkpoints/vgm_EnvCurGlobalNode_Respawn_ILRL_v2_IL/epoch0023iter20500.pt"

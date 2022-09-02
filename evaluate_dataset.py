@@ -234,7 +234,7 @@ def evaluate(eval_config, ckpt):
     # VGMRunner
     runner = eval(eval_config.runner)(eval_config, env_global_node=env_global_node, return_features=True)
 
-    eval_info = ''
+    eval_info = 'Evaluated ckpt: {}\n'.format(ckpt)
     eval_info += '=========================================\n'
     eval_info += 'Version Name: {} (seed: {})\n'.format(eval_config.VERSION, args.seed)
     eval_info += 'Task config path: {}\n'.format(args.dataset)
@@ -652,7 +652,7 @@ if __name__=='__main__':
     cfg = get_eval_config(args)
     if os.path.isdir(args.eval_ckpt):
         print('eval_ckpt ', args.eval_ckpt, ' is directory')
-        ckpts = [os.path.join(args.eval_ckpt,x) for x in sorted(os.listdir(args.eval_ckpt))]
+        ckpts = [os.path.join(args.eval_ckpt,x) for x in sorted(os.listdir(args.eval_ckpt)) if '.pth' in x or '.pt' in x]
         ckpts.reverse()
     elif os.path.exists(args.eval_ckpt):
         ckpts = args.eval_ckpt.split(",")

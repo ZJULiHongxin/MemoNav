@@ -55,7 +55,9 @@ class HabitatSim(habitat_sim.Simulator, Simulator):
         self.num_agents = len(self.habitat_config.AGENTS)
         agent_config = self._get_agent_config()
         sim_sensors = []
+
         for sensor_name in agent_config.SENSORS:
+            if sensor_name in ['COMPASS_SENSOR', 'GPS_SENSOR']: continue
             sensor_cfg = getattr(self.habitat_config, sensor_name)
             sensor_type = registry.get_sensor(sensor_cfg.TYPE)
             assert sensor_type is not None, "invalid sensor type {}".format(

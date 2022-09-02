@@ -15,13 +15,18 @@ from habitat.config import Config
 from habitat.core.dataset import Dataset
 from habitat.core.logging import logger
 from habitat.core.registry import registry
-from habitat.core.simulator import AgentState, Sensor, SensorTypes, RGBSensor, DepthSensor, SemanticSensor
+from habitat.core.simulator import AgentState, Sensor, SensorTypes, RGBSensor, DepthSensor, SemanticSensor, Simulator
 from habitat.core.dataset import Dataset, Episode
 from habitat.core.utils import not_none_validator
 from habitat.tasks.nav.nav import (
     NavigationEpisode,
     NavigationGoal,
     NavigationTask,
+)
+from habitat.tasks.utils import cartesian_to_polar
+from habitat.utils.geometry_utils import (
+    quaternion_from_coeff,
+    quaternion_rotate_vector,
 )
 import quaternion as q
 import time
@@ -56,6 +61,11 @@ class PanoramicPartRGBSensor(RGBSensor):
 
     def get_observation(self, obs, *args: Any, **kwargs: Any) -> Any:
         obs = obs.get(self.uuid, None)
+
+        # import matplotlib.pyplot as plt
+        # plt.imshow(obs)
+        # print(obs.max(), obs.min())
+        # plt.show()
         return obs
 
 @registry.register_sensor(name="PanoramicPartSemanticSensor")
@@ -76,11 +86,12 @@ class PanoramicPartSemanticSensor(RGBSensor):
             low=0,
             high=np.Inf,
             shape=(self.config.HEIGHT, self.config.WIDTH, 1),
-            dtype=np.uint8,
+            dtype=np.float32,
         )
 
     def get_observation(self, obs, *args: Any, **kwargs: Any) -> Any:
         obs = obs.get(self.uuid, None)
+
         return obs
 
 @registry.register_sensor(name="PanoramicPartDepthSensor")
@@ -240,8 +251,8 @@ class PanoramicSemanticSensor(SemanticSensor):
         return SensorTypes.SEMANTIC
     # This is called whenver reset is called or an action is taken
     def get_observation(self, observations,*args: Any, **kwargs: Any):
-        depth_list = [observations['semantic_%d'%(i)] for i in range(self.num_camera)]
-        return np.concatenate(depth_list,1)
+        semantic_list = [observations['semantic_%d'%(i)] for i in range(self.num_camera)]
+        return np.concatenate(semantic_list,1)
 
 @registry.register_sensor(name="CustomVisTargetSensor")
 class CustomVisTargetSensor(Sensor):
@@ -328,6 +339,126 @@ class CustomVisTargetSensor(Sensor):
                     self.goal_obs = np.array(self.goal_obs)
         return self.goal_obs
 
+@registry.register_sensor
+class HeadingSensor(Sensor):
+    r"""Sensor for observing the agent's heading in the global coordinate
+    frame.
+
+    Args:
+        sim: reference to the simulator for calculating task observations.
+        config: config for the sensor.
+    """
+    cls_uuid: str = "heading"
+
+    def __init__(
+        self, sim: Simulator, config: Config, *args: Any, **kwargs: Any
+    ):
+        self._sim = sim
+        super().__init__(config=config)
+
+    def _get_uuid(self, *args: Any, **kwargs: Any) -> str:
+        return self.cls_uuid
+
+    def _get_sensor_type(self, *args: Any, **kwargs: Any):
+        return SensorTypes.HEADING
+
+    def _get_observation_space(self, *args: Any, **kwargs: Any):
+        return spaces.Box(low=-np.pi, high=np.pi, shape=(1,), dtype=np.float)
+
+    def _quat_to_xy_heading(self, quat):
+        direction_vector = np.array([0, 0, -1])
+
+        heading_vector = quaternion_rotate_vector(quat, direction_vector)
+
+        phi = cartesian_to_polar(-heading_vector[2], heading_vector[0])[1]
+        return np.array([phi], dtype=np.float32)
+
+    def get_observation(
+        self, observations, episode, *args: Any, **kwargs: Any
+    ):
+        agent_state = self._sim.get_agent_state()
+        rotation_world_agent = agent_state.rotation
+
+        return self._quat_to_xy_heading(rotation_world_agent.inverse())
+
+@registry.register_sensor(name="CompassSensor")
+class EpisodicCompassSensor(HeadingSensor):
+    r"""The agents heading in the coordinate frame defined by the epiosde,
+    theta=0 is defined by the agents state at t=0
+    """
+    cls_uuid: str = "compass"
+
+    def _get_uuid(self, *args: Any, **kwargs: Any) -> str:
+        return self.cls_uuid
+
+    def get_observation(
+        self, observations, episode, *args: Any, **kwargs: Any
+    ):
+        agent_state = self._sim.get_agent_state()
+        rotation_world_agent = agent_state.rotation
+        rotation_world_start = quaternion_from_coeff(episode.start_rotation)
+
+        return self._quat_to_xy_heading(
+            rotation_world_agent.inverse() * rotation_world_start
+        )
+
+
+@registry.register_sensor(name="GPSSensor")
+class EpisodicGPSSensor(Sensor):
+    r"""The agents current location in the coordinate frame defined by the episode,
+    i.e. the axis it faces along and the origin is defined by its state at t=0
+
+    Args:
+        sim: reference to the simulator for calculating task observations.
+        config: Contains the DIMENSIONALITY field for the number of dimensions to express the agents position
+    Attributes:
+        _dimensionality: number of dimensions used to specify the agents position
+    """
+    cls_uuid: str = "gps"
+
+    def __init__(
+        self, sim: Simulator, config: Config, *args: Any, **kwargs: Any
+    ):
+        self._sim = sim
+
+        self._dimensionality = getattr(config, "DIMENSIONALITY", 2)
+        assert self._dimensionality in [2, 3]
+        super().__init__(config=config)
+
+    def _get_uuid(self, *args: Any, **kwargs: Any) -> str:
+        return self.cls_uuid
+
+    def _get_sensor_type(self, *args: Any, **kwargs: Any):
+        return SensorTypes.POSITION
+
+    def _get_observation_space(self, *args: Any, **kwargs: Any):
+        sensor_shape = (self._dimensionality,)
+        return spaces.Box(
+            low=np.finfo(np.float32).min,
+            high=np.finfo(np.float32).max,
+            shape=sensor_shape,
+            dtype=np.float32,
+        )
+
+    def get_observation(
+        self, observations, episode, *args: Any, **kwargs: Any
+    ):
+        agent_state = self._sim.get_agent_state()
+
+        origin = np.array(episode.start_position, dtype=np.float32)
+        rotation_world_start = quaternion_from_coeff(episode.start_rotation)
+
+        agent_position = agent_state.position
+
+        agent_position = quaternion_rotate_vector(
+            rotation_world_start.inverse(), agent_position - origin
+        )
+        if self._dimensionality == 2:
+            return np.array(
+                [-agent_position[2], agent_position[0]], dtype=np.float32
+            )
+        else:
+            return agent_position.astype(np.float32)
 
 
 

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from model.rnn_state_encoder import RNNStateEncoder
-from habitat_baselines.common.utils import CategoricalNet
+from custom_habitat_baselines.common.utils import CategoricalNet
 from model.resnet import resnet
 from model.resnet.resnet import ResNetEncoder
 from .perception import Perception, GATPerception
@@ -288,16 +288,6 @@ class VGMNet(nn.Module):
 
     def get_memory_span(self):
         return self.perception_unit.get_memory_span()
-    
-    def minmax_param(self, iterator):
-        max = next(iterator).max()
-        min = max
-        for i in iterator:
-            if i.max() > max:
-                max = i.max()
-            if i.min() < min:
-                min = i.min()
-        return min, max
     
     def forward(self, observations, rnn_hidden_states, prev_actions, masks, env_global_node, mode='', return_features=False, disable_forgetting=False):
         prev_actions = self.prev_action_embedding(

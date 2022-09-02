@@ -29,6 +29,15 @@ GCN:
   ENV_GLOBAL_NODE_MODE: "embedding"
   RANDOMINIT_ENV_GLOBAL_NODE: False
 
+memory:
+  FORGET: False
+  FORGETTING_TYPE: "simple"
+  FORGETTING_ATTN: "goal" # "goal", "cur", "global_node" # default to "goal"
+  RANK: "bottom" # "top", "bottom"
+  RANK_THRESHOLD: 0.2
+  TOLERANCE: 1
+  RANDOM_SELECT: False # Default to False
+
 REWARD_METHOD: 'progress'
 USE_AUXILIARY_INFO: True
 
