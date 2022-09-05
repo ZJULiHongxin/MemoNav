@@ -76,7 +76,6 @@ class PPOTrainer_Memory(BaseRLTrainer):
         self.last_prev_actions = None
         self.last_masks = None
 
-
     def _setup_actor_critic_agent(self, ppo_cfg: Config) -> None:
         r"""Sets up actor critic and agent for PPO.
 
@@ -315,12 +314,15 @@ class PPOTrainer_Memory(BaseRLTrainer):
         """
         VGMPolocy samples actions
         """
-        if 'SMT' in self.config.POLICY or 'CNNLSTM':
+        if 'SMT' in self.config.POLICY or 'CNNLSTM' in self.config.POLICY :
             self.last_observations['panoramic_rgb_history'] = rollouts.observations['panoramic_rgb']
             self.last_observations['panoramic_depth_history'] = rollouts.observations['panoramic_depth']
-            self.last_observations['gps_history'] = rollouts.observations['gps']
-            self.last_observations['compass_history'] = rollouts.observations['compass']
             self.last_observations['prev_action_history'] = rollouts.prev_actions
+
+            if 'gps' in rollouts.observations:
+                self.last_observations['gps_history'] = rollouts.observations['gps']
+                self.last_observations['compass_history'] = rollouts.observations['compass']
+            
 
         with torch.no_grad():
             (
@@ -451,9 +453,11 @@ class PPOTrainer_Memory(BaseRLTrainer):
             if 'SMT' in self.config.POLICY or 'CNN' in self.config.POLICY:
                 last_observation['panoramic_rgb_history'] = rollouts.observations['panoramic_rgb']
                 last_observation['panoramic_depth_history'] = rollouts.observations['panoramic_depth']
-                last_observation['gps_history'] = rollouts.observations['gps']
-                last_observation['compass_history'] = rollouts.observations['compass']
                 last_observation['prev_action_history'] = rollouts.prev_actions
+                if 'gps' in rollouts.observations:
+                    last_observation['gps_history'] = rollouts.observations['gps']
+                    last_observation['compass_history'] = rollouts.observations['compass']
+                
 
             # VGMPolicy.get_value
             next_value = self.actor_critic.get_value( 
@@ -590,6 +594,7 @@ class PPOTrainer_Memory(BaseRLTrainer):
             lr_lambda=lambda x: linear_decay(x, self.config.NUM_UPDATES),
         )
 
+        print("\033[0;33;40m[ppo_trainer_memory] Start training...\033[0m\n")
         with TensorboardWriter(
             self.config.TENSORBOARD_DIR, flush_secs=self.flush_secs
         ) as writer:
@@ -633,14 +638,14 @@ class PPOTrainer_Memory(BaseRLTrainer):
                 #print("\n======update=======")
                 # mix up all navigation steps, split them to mini-batches, and use each minibatch to train PPO
                 #print('\033[0;36;40m[ppo] update agent\033[0m\n')
-                with torch.autograd.detect_anomaly():
-                    (
-                        delta_pth_time,
-                        value_loss,
-                        action_loss,
-                        dist_entropy,
-                        otherlosses # a dict contain two aux tasks, span loss and attscore loss.
-                    ) = self._update_agent(ppo_cfg, rollouts)
+                #with torch.autograd.detect_anomaly():
+                (
+                    delta_pth_time,
+                    value_loss,
+                    action_loss,
+                    dist_entropy,
+                    otherlosses # a dict contain two aux tasks, span loss and attscore loss.
+                ) = self._update_agent(ppo_cfg, rollouts)
 
                 # reset env global node after update
                 if self.create_env_global_node:
@@ -759,8 +764,8 @@ class PPOTrainer_Memory(BaseRLTrainer):
                     )
                     count_checkpoints += 1
 
-                if count_steps > 10400000:
-                    break
+                # if count_steps > 10400000:
+                #     break
             self.envs.close()
 
     def write_tb(self, mode, writer, deltas, count_steps, losses=None):

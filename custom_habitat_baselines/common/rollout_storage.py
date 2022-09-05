@@ -67,10 +67,7 @@ class RolloutStorage:
         #         num_steps, num_envs, 1
         #     )
 
-        self.supervise_attscores = supervise_attscores
-        if supervise_attscores:
-            self.attscores_gt = torch.zeros(num_steps, num_envs, observation_space.spaces["global_mask"].shape[0])
-        
+
         self.rewards = torch.zeros(num_steps, num_envs, 1)
         self.value_preds = torch.zeros(num_steps + 1, num_envs, 1)
         self.returns = torch.zeros(num_steps + 1, num_envs, 1)
@@ -100,8 +97,6 @@ class RolloutStorage:
         if self.with_env_global_node:
             self.env_global_node_feat = self.env_global_node_feat.to(device)
         
-        if self.supervise_attscores:
-            self.attscores_gt = self.attscores_gt.to(device)
         #if self.expiring_forget: self.span_loss.to(device)
         
         self.rewards = self.rewards.to(device)
@@ -142,8 +137,6 @@ class RolloutStorage:
         if self.with_env_global_node:
             self.env_global_node_feat[self.step + 1].copy_(env_global_node)
         
-        if self.supervise_attscores:
-            self.attscores_gt[self.step].copy_(attscores_gt)
         # if self.expiring_forget:
         #     self.span_loss[self.step].copy_(span_loss)
         
@@ -229,8 +222,6 @@ class RolloutStorage:
                 if self.env_global_node_feat is not None:
                     env_global_node_batch.append(self.env_global_node_feat[: self.step, ind])
                 
-                if self.supervise_attscores:
-                    attscores_gt_batch.append(self.attscores_gt[:self.step, ind])
                 # if self.expiring_forget:
                 #     forget_span_loss_batch.append(self.span_loss[:self.step, ind])
                 
@@ -288,9 +279,6 @@ class RolloutStorage:
                 env_global_node_batch = torch.stack(env_global_node_batch, 1) # num_steps x num_processes_per_minibatch x 1 x 512
                 env_global_node_batch = self._flatten_helper(T, N, env_global_node_batch) # num_steps*num_processes_per_minibatch x 1 x 512
 
-            if self.supervise_attscores:
-                attscores_gt_batch = self._flatten_helper(T, N, torch.stack(attscores_gt_batch, 1))
-
             # if self.expiring_forget:
             #     forget_span_loss_batch = torch.stack(forget_span_loss_batch, 1)
 
@@ -301,7 +289,6 @@ class RolloutStorage:
                 observations_batch,
                 recurrent_hidden_states_batch,
                 env_global_node_batch if self.with_env_global_node else None,
-                attscores_gt_batch if self.supervise_attscores else None,
                 actions_batch,
                 prev_actions_batch,
                 value_preds_batch,

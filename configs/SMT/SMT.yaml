@@ -2,7 +2,7 @@ VERSION: SMT
 runner: 'SMTRunner'
 scene_data: 'gibson'
 BASE_TASK_CONFIG_PATH: "configs/SMT/vistargetnav_gibson.yaml"
-IL_TRAINER_NAME: "SMT_BC_trainer"
+IL_TRAINER_NAME: "BC_trainer"
 RL_TRAINER_NAME: "PPOTrainer_Memory_aux"
 ENV_NAME: "SearchEnv"
 
@@ -46,7 +46,7 @@ RL:
   PPO:
     num_mini_batch: 2
     num_steps: 256
-    hidden_size: 256
+    hidden_size: 512
     rl_pretrained: False
     il_pretrained: False
     pretrained_weights: "./data/new_checkpoints/vgm_RL/ckpt.15.pth"

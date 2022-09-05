@@ -36,8 +36,6 @@ class FixedMemoryWrapper(Wrapper):
         self.feature_dim = exp_config.features.visual_feature_dim # 512
         self.torch = exp_config.TASK_CONFIG.SIMULATOR.HABITAT_SIM_V0.GPU_GPU
         self.device = 'cuda:' + str(exp_config.TORCH_GPU_ID) if torch.cuda.device_count() > 0 else 'cpu'
-
-        self.scene_data = exp_config.scene_data
         
         self.goal_encoder = self.load_visual_encoder(self.feature_dim).to(self.device) # Custom ResNet18
         self.goal_encoder.eval()
@@ -51,7 +49,7 @@ class FixedMemoryWrapper(Wrapper):
         # 导航记忆仅存储RGBD图像的编号
         self.memory_idxs = [deque(maxlen=4) for _ in range(self.B)]
         
-        # self.mask = torch.zeros(size=(self.B, self.memory_size), dtype=bool)
+        self.mask = torch.ones(size=(self.B, self.memory_size), dtype=bool)
         self.step_cnt = torch.zeros(size=(self.B,), dtype=int)
         self.simulation_step = 0
         
@@ -60,7 +58,7 @@ class FixedMemoryWrapper(Wrapper):
                 obs_space.spaces.update(
                     {'global_memory': Box(low=-np.Inf, high=np.Inf, shape=(self.memory_size,),
                                           dtype=np.float32),
-                    # 'global_mask': Box(low=-np.Inf, high=np.Inf, shape=(self.memory_size,), dtype=np.float32),
+                    'global_mask': Box(low=-np.Inf, high=np.Inf, shape=(self.memory_size,), dtype=np.float32),
                     #  "compass": Box(low=-np.pi, high=np.pi, shape=(1,), dtype=np.float32),
                     #  "gps": Box(
                     #         low=np.finfo(np.float32).min,
@@ -160,7 +158,7 @@ class FixedMemoryWrapper(Wrapper):
         # obs_batch['prev_action'] = torch.tensor(actions).unsqueeze(-1) # a list
         # curr_vis_embedding = self.embed_obs(obs_batch, obs_batch['step'])
 
-        self.add_obs_embedding(obs_batch, done_list)
+        self.add_obs_embedding(done_list)
 
         obs_batch = self.update_obs(obs_batch)
         #self.update_graph()

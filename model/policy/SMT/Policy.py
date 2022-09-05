@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 from model.rnn_state_encoder import RNNStateEncoder
-from habitat_baselines.common.utils import CategoricalNet
+from custom_habitat_baselines.common.utils import CategoricalNet
 from model.resnet import resnet
 from model.resnet.resnet import ResNetEncoder
 from .perception import Perception

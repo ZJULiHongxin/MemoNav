@@ -124,6 +124,7 @@ class VlnResnetDepthEncoder(nn.Module):
         for param in self.visual_encoder.parameters():
             param.requires_grad_(trainable)
 
+        print(self.visual_encoder)
         if checkpoint != "NONE":
             ddppo_weights = torch.load(checkpoint)
 
@@ -161,6 +162,7 @@ class VlnResnetDepthEncoder(nn.Module):
             self.output_shape[0] += self.spatial_embeddings.embedding_dim
             self.output_shape = tuple(self.output_shape)
 
+        
     def forward(self, observations) -> Tensor:
         """
         Args:

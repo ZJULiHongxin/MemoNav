@@ -2,15 +2,10 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn.utils.rnn import pad_sequence
 from model.rnn_state_encoder import RNNStateEncoder
 from custom_habitat_baselines.common.utils import CategoricalNet
-from model.resnet import resnet
-from .resnet_encoders import VlnResnetDepthEncoder
-from .perception import Perception
 
-import torchvision
-import torchextractor as tx
+from model.PCL.resnet_pcl import resnet18
 
 class CriticHead(nn.Module):
     def __init__(self, input_size):
@@ -150,41 +145,37 @@ class CNNLSTMNet(nn.Module):
 
         self.B = cfg.NUM_PROCESSES
 
-        resnet50 = torchvision.models.resnet50(pretrained=True)
-        self.rgb_encoder = tx.Extractor(resnet50, ["AvgPool"])
-        self.depth_encoder = VlnResnetDepthEncoder(
-            observation_space,
-            output_size=128, # 128
-            checkpoint="../VLN-CE/data/ddppo-models/gibson-4plus-mp3d-train-val-test-resnet50.pth",
-            backbone="resnet50",
-            spatial_output=True,
-        )
+        # resnet50 = torchvision.models.resnet50(pretrained=True)
+        # self.rgb_encoder = tx.Extractor(resnet50, ["AvgPool"])
+        # self.depth_encoder = VlnResnetDepthEncoder(
+        #     observation_space,
+        #     output_size=128, # 128
+        #     checkpoint="../VLN-CE/data/ddppo-models/gibson-4plus-mp3d-train-val-test-resnet50.pth",
+        #     backbone="resnet50",
+        #     spatial_output=True,
+        # )
+        self.rgbd_encoder = resnet18(num_classes=self.feature_dim)
+        dim_mlp = self.rgbd_encoder.fc.weight.shape[1] # 512
+        self.rgbd_encoder.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.rgbd_encoder.fc)
+        ckpt_pth = os.path.join('model/PCL', 'PCL_encoder.pth')
+        ckpt = torch.load(ckpt_pth, map_location='cpu')
+        self.rgbd_encoder.load_state_dict(ckpt)
+        self.rgbd_encoder.eval()
 
-        self.rgb_encoder.to(self.device) # torchvision ResNet18
-        self.depth_encoder.to(self.device)
-        
-        self.rgb_encoder.eval()
-        self.depth_encoder.eval()
+        for p in self.rgbd_encoder.parameters():
+            p.requires_grad = False
 
-        for p in self.rgb_encoder.parameters():
-            p.requires_grad = False
+        self.rgbd_encoder.to(self.device) # torchvision ResNet18
         
-        for p in self.depth_encoder.parameters():
-            p.requires_grad = False
-        
+        # self.reduce_rgb = nn.Sequential(
+        #     nn.Linear(2048, 2048),
+        #     nn.ReLU(True)
+        # )
+
         f_dim = cfg.features.visual_feature_dim
-        self.reduce_rgb = nn.Sequential(
-            nn.Linear(2048, f_dim),
-            nn.ReLU(True)
-        )
-
-        self.reduce_depth = nn.Sequential(
-            nn.Linear(128, 128),
-            nn.ReLU(True)
-        )
 
         self.reduce_obs_seq = nn.Sequential(
-            nn.Linear(4*(f_dim+128), f_dim),
+            nn.Linear(4*f_dim, f_dim),
             nn.ReLU(True)
         )
 
@@ -193,7 +184,7 @@ class CNNLSTMNet(nn.Module):
             nn.ReLU(True)
         )
 
-        self.perception_unit = Perception(cfg)
+        #self.perception_unit = Perception(cfg)
 
         # visual_feature_dim and hidden_size are both default to 512
         
@@ -212,24 +203,22 @@ class CNNLSTMNet(nn.Module):
             num_layers=num_recurrent_layers,
         )
         self.train()
-    
-    def train(self):
-        self.reduce_rgb.train()
-        self.reduce_depth.train()
-        self.reduce_obs_seq.train()
-        self.reduce_obs_goal.train()
-        self.perception_unit.train()
-        self.pred_aux1.train()
-        self.pred_aux2.train()
-        self.state_encoder.train()
+
+        self.calc_params()
+
+    def train(self, mode=True):
+        #self.reduce_rgb.train(mode)
+        self.reduce_obs_seq.train(mode)
+        self.reduce_obs_goal.train(mode)
+        #self.perception_unit.train(mode)
+        self.pred_aux1.train(mode)
+        self.pred_aux2.train(mode)
+        self.state_encoder.train(mode)
 
     def calc_params(self):
         s = "- rgbd encoder: {}\n".format(sum(p.numel() for p in self.rgbd_encoder.parameters()))
-        s += "- pose encoder: {}\n".format(sum(p.numel() for p in self.pos_encoder.parameters()))
-        s += "- action encoder: {}\n".format(sum(p.numel() for p in self.act_encoder.parameters()))
-        s += "- reduce encoder: {}\n".format(sum(p.numel() for p in self.reduce.parameters()))
-        s += "- Perception: {}\n".format(sum(p.numel() for p in self.perception_unit.parameters()))
-        s += "- visual_fc: {}\n".format(sum(p.numel() for p in self.visual_fc.parameters()))
+        s += "- reduce_obs_seq encoder: {}\n".format(sum(p.numel() for p in self.reduce_obs_seq.parameters()))
+        s += "- reduce_obs_goal encoder: {}\n".format(sum(p.numel() for p in self.reduce_obs_goal.parameters()))
         s += "- state_encoder: {}\n".format(sum(p.numel() for p in self.state_encoder.parameters()))
         s += "- aux tasks: {}\n".format(sum(p.numel() for p in self.pred_aux1.parameters()) + sum(p.numel() for p in self.pred_aux2.parameters()))
 
@@ -255,20 +244,18 @@ class CNNLSTMNet(nn.Module):
         # ('compass_history', torch.Size([257, 4, 1])),
         # ('prev_action_history', torch.Size([257, 4, 1]))
 
-        global_memory_idxs = obs_batch['global_memory'][step].to(self.device) # num_memory
+        global_memory_idxs = obs_batch['global_memory'][step].long().to(self.device) # num_memory
 
+        # print(obs_batch['panoramic_rgb_history'].shape, obs_batch['panoramic_depth_history'].shape)
+        # print('idxs', global_memory_idxs.cpu().detach())
         rgb_tensor = obs_batch['panoramic_rgb_history'][global_memory_idxs, b].permute(0,3,1,2) / 255.0 # num_memory x 3 x 64 x 252
         depth_tensor = obs_batch['panoramic_depth_history'][global_memory_idxs, b].permute(0,3,1,2) # num_memory x 1 x 64 x 252
 
-        rgb_seq_feat = self.rgb_encoder(rgb_tensor)
-        rgb_seq_feat = self.reduce_rgb(rgb_seq_feat)
+        rgbd_seq_feat = self.rgbd_encoder(torch.cat([rgb_tensor, depth_tensor], dim=1))
 
-        depth_seq_feat = self.depth_encoder(depth_tensor)
-        depth_seq_feat = self.reduce_depth(depth_seq_feat)
-
-        rgbd_feat = self.reduce_obs_seq(torch.cat([rgb_seq_feat, depth_seq_feat], dim=1).view(1,-1))
+        rgbd_feat = self.reduce_obs_seq(rgbd_seq_feat.view(1,-1))
         
-        obs_emb_batch = self.reduce_obs_goal(torch.cat([rgbd_feat, obs_batch['goal_embedding']], dim=1)) # B x 512
+        obs_emb_batch = self.reduce_obs_goal(torch.cat([rgbd_feat, obs_batch['goal_embedding'][step:step+1]], dim=1)) # B x 512
         
         return rgbd_feat, obs_emb_batch
 
@@ -285,6 +272,7 @@ class CNNLSTMNet(nn.Module):
         num_samples = prev_actions.shape[0] # 256 * 4
         num_step_per_batch = num_samples // self.B # 256
 
+        # input(observations['global_memory'])
         for b in range(self.B):
             for step in range(num_step_per_batch):
                 rgbd_feat, obs_emb_batch = self.embed_obs_batch(obs_batch=observations, b=b, step=b*num_step_per_batch + step)

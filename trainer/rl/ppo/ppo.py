@@ -84,7 +84,6 @@ class PPO(nn.Module):
                     obs_batch,
                     recurrent_hidden_states_batch,
                     env_global_node_batch, # may be None
-                    attscores_gt_batch, # may be None
                     actions_batch,
                     prev_actions_batch,
                     value_preds_batch,
@@ -97,8 +96,10 @@ class PPO(nn.Module):
                 if hasattr(self.actor_critic, 'config') and ('SMT' in self.actor_critic.config.POLICY or 'CNN' in self.actor_critic.config.POLICY):
                     obs_batch['panoramic_rgb_history'] = rollouts.observations['panoramic_rgb']
                     obs_batch['panoramic_depth_history'] = rollouts.observations['panoramic_depth']
-                    obs_batch['gps_history'] = rollouts.observations['gps']
-                    obs_batch['compass_history'] = rollouts.observations['compass']
+
+                    if 'gps' in rollouts.observations:
+                        obs_batch['gps_history'] = rollouts.observations['gps']
+                        obs_batch['compass_history'] = rollouts.observations['compass']
                     obs_batch['prev_action_history'] = rollouts.prev_actions
                 
                 # Reshape to do in a single forward pass for all steps
@@ -128,20 +129,7 @@ class PPO(nn.Module):
                     span_loss = (remaining_span * ramp_mask.float()).mean() # Span Regularization: forgetting_coef * Σ_i L·Sigmoid(w·h_i + b)/Ramp/seq_len
                 
                 attscore_loss = 0
-                if self.attscore_loss_coef != 0:
-                    num_node_per_env = obs_batch['global_mask'].sum(dim=1).int() # num_steps * mini_batch
-                    attscore_pred  = ffeatures['goal_attn'] # num_steps * mini_batch x num_nodes
 
-                    for b in range(num_node_per_env.shape[0]):
-                        if num_node_per_env[b] < 2: continue
-
-                        pre_attscores = torch.clamp(attscore_pred[b,:num_node_per_env[b]], min=1e-5)
-                        attscores = torch.log(pre_attscores / pre_attscores.sum())
-                        # print('attscore',attscore_pred[b].detach(), num_node_per_env[b].detach(), attscores.detach())
-                        # print('gt',attscores_gt_batch[b, :num_node_per_env[b]])
-                        # attscore shoule be log_softmaxed, and attscore_gt shoulde be softmaxed or softmined
-                        attscore_loss += F.kl_div(attscores, attscores_gt_batch[b, :num_node_per_env[b]])
-                
                 # policy loss
                 ratio = torch.exp(
                     action_log_probs - old_action_log_probs_batch
@@ -171,7 +159,7 @@ class PPO(nn.Module):
                 if pred_aux1 is not None:
                     aux_loss1 = F.binary_cross_entropy_with_logits(pred_aux1, obs_batch['have_been'].float())
                 if pred_aux2 is not None:
-                    aux_loss2 = F.mse_loss(F.sigmoid(pred_aux2), obs_batch['target_dist_score'].float())
+                    aux_loss2 = F.mse_loss(torch.sigmoid(pred_aux2), obs_batch['target_dist_score'].float())
 
                 self.optimizer.zero_grad()
 
@@ -210,7 +198,6 @@ class PPO(nn.Module):
         value_loss_epoch /= num_updates
         action_loss_epoch /= num_updates
         span_loss_epoch /= num_updates
-        attscore_loss_epoch /= num_updates
         dist_entropy_epoch /= num_updates
 
         aux_loss1_epoch /= num_updates

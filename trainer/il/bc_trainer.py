@@ -7,13 +7,20 @@ import torch.optim as optim
 import imageio
 import cv2
 import copy
-from trainer.il.bc_wrapper import BCWrapper
+from trainer.il.bc_wrapper import BCWrapper, SMT_BCWrapper, CNNLSTMWrapper
 
 class BC_trainer(nn.Module):
     def __init__(self, cfg, agent):
         super().__init__()
         self.agent = agent
-        self.env_wrapper = BCWrapper(cfg, cfg.BC.batch_size)
+
+        bc_wrapper = BCWrapper
+        if 'SMT' in cfg.POLICY:
+            bc_wrapper = SMT_BCWrapper
+        elif 'CNNLSTM' in cfg.POLICY:
+            bc_wrapper = CNNLSTMWrapper
+        
+        self.env_wrapper = bc_wrapper(cfg, cfg.BC.batch_size)
         self.feature_dim = cfg.features.visual_feature_dim
         self.torch_device = torch.device('cpu' if cfg.TORCH_GPU_ID == '-1' else 'cuda:{}'.format(cfg.TORCH_GPU_ID))
         self.optim = optim.Adam(
@@ -61,6 +68,7 @@ class BC_trainer(nn.Module):
         span_losses = []
         aux_losses1 = []
         aux_losses2 = []
+        #print('length', T); input()
         for t in range(T):
             masks = lengths > t
             if t == 0: masks[:] = False
@@ -193,7 +201,7 @@ class BC_trainer(nn.Module):
                 writer.append_data(view_im)
             writer.close()
 
-class BC_trainer(nn.Module):
+class SMT_BC_trainer(nn.Module):
     def __init__(self, cfg, agent):
         super().__init__()
         self.agent = agent
