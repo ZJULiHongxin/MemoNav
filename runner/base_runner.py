@@ -5,12 +5,12 @@ from gym.spaces.dict import Dict as SpaceDict
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
 import numpy as np
+import time
 import torch.nn.functional as F
 from env_utils.env_wrapper.env_wrapper import EnvWrapper
 from model.policy import *
 class BaseRunner(nn.Module):
     def __init__(self, config, return_features=False):
-        super().__init__()
         super().__init__()
         observation_space = SpaceDict({
             'panoramic_rgb': Box(low=0, high=256, shape=(64, 256, 3), dtype=np.float32),
@@ -20,7 +20,7 @@ class BaseRunner(nn.Module):
             'gt_action': Box(low=0, high=3, shape=(1,), dtype=np.int32)
         })
         action_space = Discrete(config.ACTION_DIM)
-        print(config.POLICY, 'using ', eval(config.POLICY))
+        # print(config.POLICY, 'using ', eval(config.POLICY))
         agent = eval(config.POLICY)(
             observation_space=observation_space,
             action_space=action_space,
@@ -33,11 +33,14 @@ class BaseRunner(nn.Module):
             cfg=config
         )
         self.agent = agent
-        self.torch_device = 'cuda'
+        self.torch_device = (
+            torch.device("cuda:"+str(config.TORCH_GPU_ID))
+            if torch.cuda.is_available()
+            else torch.device("cpu")
+        )
         self.return_features = False
         self.need_env_wrapper = True
         self.num_agents = 1
-        return
 
     def reset(self, obs):
         self.B = 1
@@ -57,6 +60,8 @@ class BaseRunner(nn.Module):
             else:
                 new_obs[k] = v
         obs = new_obs
+
+        t = time.time()
         (
             values,
             actions,
@@ -72,6 +77,8 @@ class BaseRunner(nn.Module):
             deterministic=False,
             return_features=self.return_features
         )
+        decision_time = time.time() - t
+
         self.hidden_states.copy_(hidden_states)
         self.actions.copy_(actions)
         self.time_t += 1

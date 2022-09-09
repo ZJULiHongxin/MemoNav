@@ -44,7 +44,7 @@ _C.LOG_INTERVAL = 10
 _C.LOG_FILE = "train.log"
 _C.CHECKPOINT_INTERVAL = 50
 _C.VIS_INTERVAL = 10
-
+_C.GRAPH_TH = 0.75
 _C.POLICY = 'PointNavResNetPolicy'
 _C.visual_encoder_type = 'unsupervised'
 _C.WRAPPER = 'EnvWrapper'

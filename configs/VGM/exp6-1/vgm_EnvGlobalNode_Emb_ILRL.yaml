@@ -1,4 +1,4 @@
-VERSION: MemoNav_seed5
+VERSION: vgm_EnvGlobalNode_Emb_ILRL
 runner: 'VGMRunner'
 scene_data: 'gibson'
 BASE_TASK_CONFIG_PATH: "configs/vistargetnav_gibson.yaml"
@@ -6,8 +6,8 @@ IL_TRAINER_NAME: "BC_trainer"
 RL_TRAINER_NAME: "PPOTrainer_Memory_aux"
 ENV_NAME: "SearchEnv"
 
-SIMULATOR_GPU_ID: 1
-TORCH_GPU_ID: 1
+SIMULATOR_GPU_ID: 0
+TORCH_GPU_ID: 3
 
 NUM_PROCESSES: 4
 NUM_VAL_PROCESSES: 0
@@ -25,27 +25,14 @@ POLICY: 'VGMPolicy'
 WRAPPER: 'GraphWrapper'
 
 GCN:
-  TYPE: "GATv2"
-  ENV_GLOBAL_NODE_MODE: "resapwn"
+  TYPE: "GCN"
+  ENV_GLOBAL_NODE_MODE: "embedding"
   RANDOMINIT_ENV_GLOBAL_NODE: False
-  RANDOMINIT_ENV_GLOBAL_NODE: False
-  RESPAWN_GLOBAL_NODE: True
-
-memory:
-  FORGET: False
-  FORGETTING_TYPE: "simple"
-  FORGETTING_ATTN: "goal" # "goal", "cur", "global_node" # default to "goal"
-  RANK: "bottom" # "top", "bottom"
-  RANK_THRESHOLD: 0.2
-  TOLERANCE: 1
-  RANDOM_SELECT: False # Default to False
-
 
 REWARD_METHOD: 'progress'
 USE_AUXILIARY_INFO: True
 
 BC:
-  max_epoch: 100 # defalt to 100
   batch_size: 16
   num_workers: 8
 
@@ -56,6 +43,6 @@ RL:
   PPO:
     num_mini_batch: 2
     num_steps: 256
-    rl_pretrained: True
+    rl_pretrained: False
     il_pretrained: False
-    pretrained_weights: "data/new_checkpoints/MemoNav_seed5_RL/ckpt44_frame9012224.pth"
+    pretrained_weights: "./data/new_checkpoints/vgm_RL/ckpt.15.pth"

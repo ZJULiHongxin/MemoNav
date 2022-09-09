@@ -734,16 +734,16 @@ class PPOTrainer_Memory(BaseRLTrainer):
                         )
                     )
 
-                    logger.info(
-                        "Average window size: {}  {}".format(
-                            len(window_episode_stats["count"]),
-                            "  ".join(
-                                "{}: {:.3f}".format(k, v / deltas["count"])
-                                for k, v in deltas.items()
-                                if k != "count"
-                            ),
-                        )
-                    )
+                    # logger.info(
+                    #     "Average window size: {}  {}".format(
+                    #         len(window_episode_stats["count"]),
+                    #         "  ".join(
+                    #             "{}: {:.3f}".format(k, v / deltas["count"])
+                    #             for k, v in deltas.items()
+                    #             if k != "count"
+                    #         ),
+                    #     )
+                    # )
 
                     if num_val_processes > 0:
                         logger.info(

@@ -42,10 +42,11 @@ class GraphWrapper(Wrapper):
 
         self.visual_encoder_type = 'unsupervised'
         self.visual_encoder = self.load_visual_encoder(self.visual_encoder_type, self.input_shape, self.feature_dim).to(self.device)
-        self.th = getattr(exp_config, 'graph_th', 0.75)
+        self.th = getattr(exp_config, 'GRAPH_TH', 0.75) # default: 0.75
+        
         self.graph = Graph(exp_config, self.B, self.device)
         self.need_goal_embedding = 'wo_Fvis' in exp_config.POLICY
- 
+
         if isinstance(envs, VectorEnv):
             for obs_space in self.observation_spaces:
                 obs_space.spaces.update(

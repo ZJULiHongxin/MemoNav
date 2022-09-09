@@ -22,7 +22,7 @@ class BCWrapper(GraphWrapper):
         self.visual_encoder = self.load_visual_encoder(self.visual_encoder_type, self.input_shape, self.feature_dim).to(self.torch_device)
 
         self.graph = Graph(exp_config, self.B, self.torch_device)
-        self.th = 0.75
+        self.th = getattr(exp_config, 'GRAPH_TH', 0.75) # default: 0.75
         self.num_agents = exp_config.NUM_AGENTS
         self.need_goal_embedding = 'wo_Fvis' in exp_config.POLICY
         self.localize_mode = 'predict'

@@ -129,18 +129,19 @@ class StackedMemoryWrapper(Wrapper):
         return obs_batch
 
     def add_obs_embedding_old(self, new_emb, done_list):
+        temp_done_list = done_list[:] # Copy done_list to avoid modifying it
         for b in range(self.B):
-            if done_list[b] == 1:
+            if temp_done_list[b] == 1:
                 self.mask[b] = False
                 self.embeddings[b] = 0.
-                done_list[b] = False
+                temp_done_list[b] = False
                 self.step_cnt[b] = 0
 
             if self.step_cnt[b] >= self.memory_size:
-                self.mask[b] = torch.cat([self.mask[b, 1:], ~torch.tensor(done_list[b])], dim=0)
+                self.mask[b] = torch.cat([self.mask[b, 1:], ~torch.tensor(temp_done_list[b])], dim=0)
                 self.embeddings[b] = torch.cat([self.embeddings[b, 1:], new_emb[b]], dim=1)
             else:
-                self.mask[b, self.step_cnt[b]] = ~torch.tensor(done_list[b])
+                self.mask[b, self.step_cnt[b]] = ~torch.tensor(temp_done_list[b])
                 self.embeddings[b, self.step_cnt[b]] = new_emb[b]
 
             self.step_cnt[b] += 1

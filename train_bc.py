@@ -58,8 +58,8 @@ def train():
 
     config.defrost()
     
-    if args.debug != 0:
-        config.BC.batch_size = 2
+    # if args.debug != 0:
+    #     config.BC.batch_size = 2
 
     config.NUM_PROCESSES = config.BC.batch_size
     
@@ -162,7 +162,6 @@ def train():
     print('Num params: {}'.format(sum(param.numel() for param in trainer.parameters())))
 
     for epoch in range(start_epoch, max_epoch+1):
-
         train_dataloader = DataLoader(train_dataset, **params)
         train_iter = iter(train_dataloader)
         loss_summary_dict = {}

@@ -15,10 +15,13 @@ class BC_trainer(nn.Module):
         self.agent = agent
 
         bc_wrapper = BCWrapper
-        if 'SMT' in cfg.POLICY:
-            bc_wrapper = SMT_BCWrapper
-        elif 'CNNLSTM' in cfg.POLICY:
-            bc_wrapper = CNNLSTMWrapper
+        self.is_baseline = False
+        # if 'SMT' in cfg.POLICY:
+        #     bc_wrapper = SMT_BCWrapper
+        #     self.is_baseline = True
+        # elif 'CNNLSTM' in cfg.POLICY:
+        #     bc_wrapper = CNNLSTMWrapper
+        #     self.is_baseline = True
         
         self.env_wrapper = bc_wrapper(cfg, cfg.BC.batch_size)
         self.feature_dim = cfg.features.visual_feature_dim
@@ -54,7 +57,12 @@ class BC_trainer(nn.Module):
         aux_info = {'have_been': aux_info['have_been'].to(self.torch_device),
                     'distance': aux_info['distance'].to(self.torch_device)}
         self.B = demo_act.shape[0]
-        self.env_wrapper.B = demo_act.shape[0]
+        self.env_wrapper.B = self.B
+
+        # For SMT and CNNLSTM
+        if self.is_baseline:
+            self.agent.net.B = self.B
+
         self.env_wrapper.reset_all_memory(self.B)
         lengths = (demo_act > -10).sum(dim=1)
 

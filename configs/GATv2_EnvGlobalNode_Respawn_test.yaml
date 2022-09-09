@@ -55,4 +55,4 @@ RL:
     num_steps: 256
     rl_pretrained: False
     il_pretrained: True
-    pretrained_weights: "data/new_checkpoints/GATv2_EnvGlobalNode_Respawn_ILRL_IL/epoch0015iter16500.pt"
+    pretrained_weights: "data/new_checkpoints/GATv2_EnvGlobalNode_Respawn_ILRL_IL/epoch0019iter18500.pt"

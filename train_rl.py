@@ -62,13 +62,21 @@ parser.add_argument(
     type=int
 )
 
+parser.add_argument(
+    "--version",
+    default='',
+    type=str
+)
+
 arguments = parser.parse_args()
 
 def main():
     run_exp(**vars(arguments))
 
 def run_exp(config: str, opts=None, *args, **kwargs) -> None:
-    config = get_config(config, config.split('/')[-1][:-len(".yaml")] + "_RL")
+    version = arguments.version if arguments.version else config.split('/')[-1][:-len(".yaml")]
+
+    config = get_config(config, version + "_RL")
     config.defrost()
     config.noisy_actuation = not arguments.no_noise
     config.DIFFICULTY = arguments.diff
@@ -82,6 +90,7 @@ def run_exp(config: str, opts=None, *args, **kwargs) -> None:
     # in habitat/config/default.py, TASK_CONFIG.SEED is default to 100
     if arguments.seed != 'none':
         config.TASK_CONFIG.SEED = int(arguments.seed)
+
     config.freeze()
     random.seed(config.TASK_CONFIG.SEED) 
     np.random.seed(config.TASK_CONFIG.SEED)

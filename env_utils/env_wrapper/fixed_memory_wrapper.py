@@ -8,7 +8,6 @@ from utils.ob_utils import batch_obs
 import torch.nn as nn
 import torch.nn.functional as F
 from model.PCL.resnet_pcl import resnet18
-import torchvision.models as models
 import os
 # this wrapper comes after vectorenv
 from habitat.core.vector_env import VectorEnv
@@ -133,7 +132,7 @@ class FixedMemoryWrapper(Wrapper):
             if done_list[b] == 1:
                 # self.mask[b] = False
                 self.memory_idxs[b].clear()
-                done_list[b] = False
+                # done_list[b] = False
                 self.step_cnt[b] = 0
 
             # self.mask[b, self.step_cnt[b]] = ~torch.tensor(done_list[b])

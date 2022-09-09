@@ -203,6 +203,7 @@ def evaluate(eval_config, ckpt):
         ckpt_config.VERSION = eval_config.VERSION
         ckpt_config.POLICY = eval_config.POLICY
         ckpt_config.GCN = eval_config.GCN
+        ckpt_config.transformer = eval_config.transformer
 
         for k, v in eval_config.items():
             if k not in ckpt_config:
@@ -235,8 +236,9 @@ def evaluate(eval_config, ckpt):
     runner = eval(eval_config.runner)(eval_config, env_global_node=env_global_node, return_features=True)
 
     eval_info = 'Evaluated ckpt: {}\n'.format(ckpt)
+    print('\n\033[0;33;40mEvaluated ckpt: {}\033[0m\n'.format(ckpt))
     eval_info += '=========================================\n'
-    eval_info += 'Version Name: {} (seed: {})\n'.format(eval_config.VERSION, args.seed)
+    eval_info += 'Version Name: {} (evaluation seed: {})\n'.format(eval_config.VERSION, args.seed)
     eval_info += 'Task config path: {}\n'.format(args.dataset)
     eval_info += 'Runner: {}\n'.format(eval_config.runner)
     eval_info += 'Policy: {}\n'.format(eval_config.POLICY)
@@ -245,11 +247,11 @@ def evaluate(eval_config, ckpt):
     eval_info += 'Stop action: {}\n'.format('True' if eval_config.ACTION_DIM==4 else 'False')
     eval_info += 'Env gloabl node mode: {}'.format(eval_config.GCN.ENV_GLOBAL_NODE_MODE)
     if eval_config.GCN.ENV_GLOBAL_NODE_MODE != "unavailable":
-        eval_info += ', link percentage: {}, random_replace: {}\n'.format(str(eval_config.GCN.ENV_GLOBAL_NODE_LINK_RANGE), str(eval_config.GCN.RANDOM_REPLACE))
+        eval_info += ', link percentage: {}, random_replace: {}'.format(str(eval_config.GCN.ENV_GLOBAL_NODE_LINK_RANGE), str(eval_config.GCN.RANDOM_REPLACE))
 
     if eval_config.memory.FORGET:
         num_forgotten_nodes = "{}%".format(int(100 * eval_config.memory.RANK_THRESHOLD)) if eval_config.memory.RANK_THRESHOLD < 1 else "{}".format(int(eval_config.memory.RANK_THRESHOLD))
-        eval_info += 'Forgetting: {} \n\t Start forgetting after {} nodes are collected\n\t'.format(str(eval_config.memory.FORGET), eval_config.memory.TOLERANCE)
+        eval_info += '\nForgetting: {} \n\t Start forgetting after {} nodes are collected\n\t'.format(str(eval_config.memory.FORGET), eval_config.memory.TOLERANCE)
 
         if eval_config.memory.RANDOM_SELECT:
             eval_info += 'Randomly forgetting {} nodes\n'.format(num_forgotten_nodes)
@@ -261,7 +263,7 @@ def evaluate(eval_config, ckpt):
         
         eval_info += '\t Forgetting according to {} attention scores\n'.format(eval_config.memory.FORGETTING_ATTN)
     else:
-        eval_info += 'Forgetting: False\n'
+        eval_info += '\nForgetting: False\n'
     eval_info += 'GCN encoder type: {}\n'.format(eval_config.GCN.TYPE)
     eval_info += 'Fusion method: {}, decode global node: {}\n'.format(str(eval_config.FUSION_TYPE), str(eval_config.transformer.DECODE_GLOBAL_NODE))
     eval_info += '===========================================\n'
@@ -374,8 +376,7 @@ def evaluate(eval_config, ckpt):
         for episode_id in range(test_num):
             # env is env_utils/env_graph_wrapper.GraphWrapper
             # after reset, the starting position will be saved as the first node in the topological map
-            obs = env.reset() 
-
+            obs = env.reset() # GraphWrapper
             if render_check == False:
                 if obs['panoramic_rgb'].sum() == 0 :
                     print('NO RENDERING!!!!!!!!!!!!!!!!!! YOU SHOULD CHECK YOUT DISPLAY SETTING')
@@ -434,10 +435,11 @@ def evaluate(eval_config, ckpt):
 
                 # Forget some less important nodes
                 # att_scores is a dict {'goal_attn': 1 x num_nodes, 'curr_attn': 1 x num_nodes, 'GAT_attn'}
-                forget_node_indices = env.forget_node(
-                    att_scores[attn_choice],
-                    num_nodes=obs['global_mask'].sum(dim=1),
-                    att_type=attn_choice)
+                if args.forget:
+                    forget_node_indices = env.forget_node(
+                        att_scores[attn_choice],
+                        num_nodes=obs['global_mask'].sum(dim=1),
+                        att_type=attn_choice)
                 
                 # if HIGHSCORE_RATIO:
                 #     node_num = obs['global_mask'].sum(dim=1)[0].int()
@@ -516,7 +518,6 @@ def evaluate(eval_config, ckpt):
 
                 # if args.render:
                 #     env.render('human')
-                
                 if done:
                     break
 

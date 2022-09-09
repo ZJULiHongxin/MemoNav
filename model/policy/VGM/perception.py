@@ -370,6 +370,7 @@ class Perception(nn.Module):
             #t1 = time()
             # the two decoding processes take 0.0018s at least and 0.0037 at most
 
+            # print(torch.isnan(goal_embedding).sum(), torch.isnan(global_context).sum(), global_mask)
             goal_context, goal_attn = self.goal_Decoder(goal_embedding.unsqueeze(1), global_context, global_mask)
             #print(global_context[0].shape, global_mask[0], goal_attn[0], );input()
             curr_context, curr_attn = self.curr_Decoder(curr_embedding.unsqueeze(1), global_context, global_mask)
