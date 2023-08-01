@@ -7,7 +7,7 @@ RL_TRAINER_NAME: "PPOTrainer_Memory_aux"
 ENV_NAME: "SearchEnv"
 
 SIMULATOR_GPU_ID: 1
-TORCH_GPU_ID: 4
+TORCH_GPU_ID: 1
 
 NUM_PROCESSES: 4
 NUM_VAL_PROCESSES: 0
@@ -28,11 +28,12 @@ GCN:
   TYPE: "GATv2"
   ENV_GLOBAL_NODE_MODE: "embedding"
   RANDOMINIT_ENV_GLOBAL_NODE: False
-
-  ENV_GLOBAL_NODE_LINK_RANGE: 0.8 # 0.2, 0.5, 0.8 # default to -1.0
+  RANDOM_REPLACE: False # default to False
+  ENV_GLOBAL_NODE_LINK_RANGE: -1.0 # 0.2, 0.5, 0.8 # default to -1.0
 
 memory:
   FORGET: False
+  TRAINING_FORGET: False
   FORGETTING_TYPE: "simple"
   FORGETTING_ATTN: "goal" # "goal", "cur", "global_node" # default to "goal"
   RANK: "bottom" # "top", "bottom"

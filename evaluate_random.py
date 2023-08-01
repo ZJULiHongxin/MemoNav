@@ -155,26 +155,34 @@ def evaluate(eval_config, ckpt):
     # VGMRunner
     runner = eval(eval_config.runner)(eval_config, env_global_node=env_global_node, return_features=True)
 
-    eval_info = ''
+    eval_info = 'Evaluated ckpt: {}\n'.format(ckpt)
+    print('\n\033[0;33;40mEvaluated ckpt: {}\033[0m\n'.format(ckpt))
     eval_info += '=========================================\n'
-    eval_info += 'Version Name: {}\n'.format(eval_config.VERSION)
-    eval_info += 'Task config path: {}\n'.format(eval_config.BASE_TASK_CONFIG_PATH)
+    eval_info += 'Version Name: {} (evaluation seed: {})\n'.format(eval_config.VERSION, args.seed)
     eval_info += 'Runner: {}\n'.format(eval_config.runner)
     eval_info += 'Policy: {}\n'.format(eval_config.POLICY)
     eval_info += 'Num params: {}\n'.format(sum(param.numel() for param in runner.parameters()))
     eval_info += 'Difficulty: {}\n'.format(eval_config.DIFFICULTY)
     eval_info += 'Stop action: {}\n'.format('True' if eval_config.ACTION_DIM==4 else 'False')
-    eval_info += 'Env gloabl node: {}, link percentage: {}, random_replace: {}\n'.format(str(eval_config.GCN.WITH_ENV_GLOBAL_NODE), str(eval_config.GCN.ENV_GLOBAL_NODE_LINK_RANGE), str(eval_config.GCN.RANDOM_REPLACE))
+    eval_info += 'Env gloabl node mode: {}'.format(eval_config.GCN.ENV_GLOBAL_NODE_MODE)
+    if eval_config.GCN.ENV_GLOBAL_NODE_MODE != "unavailable":
+        eval_info += ', link percentage: {}, random_replace: {}'.format(str(eval_config.GCN.ENV_GLOBAL_NODE_LINK_RANGE), str(eval_config.GCN.RANDOM_REPLACE))
 
     if eval_config.memory.FORGET:
         num_forgotten_nodes = "{}%".format(int(100 * eval_config.memory.RANK_THRESHOLD)) if eval_config.memory.RANK_THRESHOLD < 1 else "{}".format(int(eval_config.memory.RANK_THRESHOLD))
-        if eval_config.memory.RANK == 'bottom':
-            eval_info += 'Forgetting: {} \n\t Start forgetting after {} nodes are collected\n\t Nodes in the bottom {} will be forgotten\n'.format(str(eval_config.memory.FORGET), eval_config.memory.TOLERANCE, num_forgotten_nodes)
-        elif eval_config.memory.RANK == 'top':
-            eval_info += 'Forgetting: {} \n\t Start forgetting after {} nodes are collected\n\t Nodes in the top {} will be remembered\n'.format(str(eval_config.memory.FORGET), eval_config.memory.TOLERANCE, num_forgotten_nodes)
+        eval_info += '\nForgetting: {} \n\t Start forgetting after {} nodes are collected\n\t'.format(str(eval_config.memory.FORGET), eval_config.memory.TOLERANCE)
+
+        if eval_config.memory.RANDOM_SELECT:
+            eval_info += 'Randomly forgetting {} nodes\n'.format(num_forgotten_nodes)
+        else:
+            if eval_config.memory.RANK == 'bottom':
+                eval_info += 'Nodes in the bottom {} will be forgotten\n'.format(num_forgotten_nodes)
+            elif eval_config.memory.RANK == 'top':
+                eval_info += 'Nodes in the top {} will be remembered\n'.format(num_forgotten_nodes)
+        
         eval_info += '\t Forgetting according to {} attention scores\n'.format(eval_config.memory.FORGETTING_ATTN)
     else:
-        eval_info += 'Forgetting: False\n'
+        eval_info += '\nForgetting: False\n'
     eval_info += 'GCN encoder type: {}\n'.format(eval_config.GCN.TYPE)
     eval_info += 'Fusion method: {}, decode global node: {}\n'.format(str(eval_config.FUSION_TYPE), str(eval_config.transformer.DECODE_GLOBAL_NODE))
     eval_info += '===========================================\n'
@@ -243,11 +251,11 @@ def evaluate(eval_config, ckpt):
             step = 0
             while True:
                 action, att_scores, decision_time = runner.step(obs, reward, done, info, env)
-                
-                env.forget_node(
-                    att_scores[attn_choice],
-                    num_nodes=obs['global_mask'].sum(dim=1),
-                    att_type=attn_choice)
+                if args.forget:
+                    env.forget_node(
+                        att_scores[attn_choice],
+                        num_nodes=obs['global_mask'].sum(dim=1),
+                        att_type=attn_choice)
 
                 obs, reward, done, info = env.step(action)
                 step += 1

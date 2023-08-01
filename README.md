@@ -141,8 +141,3 @@ https://user-images.githubusercontent.com/49870114/175005441-871eb72c-a938-4086-
 
 
 https://user-images.githubusercontent.com/49870114/175005452-cb3f720d-4143-4000-a673-b4172945fdb3.mp4
-
-
-## Contributing
-
-<!-- >📋  Pick a licence and describe how to contribute to your code repository. >📋  A template README.md for code accompanying a Machine Learning paper -->

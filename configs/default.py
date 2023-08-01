@@ -103,7 +103,7 @@ _C.memory.need_local_memory = False
 _C.memory.FORGET = False # NOTE: innovation 2
 _C.memory.FORGETTING_ATTN = "goal" # ["cur", "global_node"]
 _C.memory.FORGETTING_TYPE = "simple" # ["Expire"]
-_C.memory.TRAINIG_FORGET = False # use the forgetting mechanism in evaluation, not in training
+_C.memory.TRAINING_FORGET = False # use the forgetting mechanism in evaluation, not in training
 # For Expire-span
 _C.memory.EXPIRE_INIT_PERCENTAGE = 0.1
 _C.memory.MAX_SPAN = 32
@@ -111,7 +111,7 @@ _C.memory.PRE_DIV = 6
 _C.memory.RAMP = 6
 _C.memory.EXPIRE_LOSS_COEF = 5e-6
 # For simple
-_C.memory.TOLERANCE = 10 # implement forgetting mechanism after TOLERANCE nodes have been created
+_C.memory.TOLERANCE = 1 # implement forgetting mechanism after TOLERANCE nodes have been created
 _C.memory.RANK = "bottom" # or "top"
 _C.memory.RANK_THRESHOLD = 0.2 # nodes whose att-scores remain in the bottom for several consecutive steps will be forgotten 
 _C.memory.RANDOM_SELECT = False # Whether or not add to randomly select graph nodes. This varibale is used for ablation

@@ -65,7 +65,7 @@ from runner import *
 
 
 # flags for special experiments
-STEP_HISTOGRAM = False
+STEP_HISTOGRAM = True
 ATT_HISTOGRAM = False
 HIGHSCORE_RATIO = False
 RANDOM_AGENT = False
@@ -230,43 +230,50 @@ def evaluate(eval_config, ckpt):
         eval_config.ENV_NAME = "MultiSearchEnv"
     
     eval_config.noisy_actuation = True
+
+    if RANDOM_AGENT:
+        eval_config.memory.memory_size = 1000
+
     eval_config.freeze()
 
     # VGMRunner
     runner = eval(eval_config.runner)(eval_config, env_global_node=env_global_node, return_features=True)
 
-    eval_info = 'Evaluated ckpt: {}\n'.format(ckpt)
-    print('\n\033[0;33;40mEvaluated ckpt: {}\033[0m\n'.format(ckpt))
-    eval_info += '=========================================\n'
-    eval_info += 'Version Name: {} (evaluation seed: {})\n'.format(eval_config.VERSION, args.seed)
-    eval_info += 'Task config path: {}\n'.format(args.dataset)
-    eval_info += 'Runner: {}\n'.format(eval_config.runner)
-    eval_info += 'Policy: {}\n'.format(eval_config.POLICY)
-    eval_info += 'Num params: {}\n'.format(sum(param.numel() for param in runner.parameters()))
-    eval_info += 'Difficulty: {}\n'.format(eval_config.DIFFICULTY)
-    eval_info += 'Stop action: {}\n'.format('True' if eval_config.ACTION_DIM==4 else 'False')
-    eval_info += 'Env gloabl node mode: {}'.format(eval_config.GCN.ENV_GLOBAL_NODE_MODE)
-    if eval_config.GCN.ENV_GLOBAL_NODE_MODE != "unavailable":
-        eval_info += ', link percentage: {}, random_replace: {}'.format(str(eval_config.GCN.ENV_GLOBAL_NODE_LINK_RANGE), str(eval_config.GCN.RANDOM_REPLACE))
-
-    if eval_config.memory.FORGET:
-        num_forgotten_nodes = "{}%".format(int(100 * eval_config.memory.RANK_THRESHOLD)) if eval_config.memory.RANK_THRESHOLD < 1 else "{}".format(int(eval_config.memory.RANK_THRESHOLD))
-        eval_info += '\nForgetting: {} \n\t Start forgetting after {} nodes are collected\n\t'.format(str(eval_config.memory.FORGET), eval_config.memory.TOLERANCE)
-
-        if eval_config.memory.RANDOM_SELECT:
-            eval_info += 'Randomly forgetting {} nodes\n'.format(num_forgotten_nodes)
-        else:
-            if eval_config.memory.RANK == 'bottom':
-                eval_info += 'Nodes in the bottom {} will be forgotten\n'.format(num_forgotten_nodes)
-            elif eval_config.memory.RANK == 'top':
-                eval_info += 'Nodes in the top {} will be remembered\n'.format(num_forgotten_nodes)
-        
-        eval_info += '\t Forgetting according to {} attention scores\n'.format(eval_config.memory.FORGETTING_ATTN)
+    if RANDOM_AGENT:
+        eval_info = 'Random evaluation on {} {} (seed: {})'.format(args.dataset, args.diff, args.seed)
     else:
-        eval_info += '\nForgetting: False\n'
-    eval_info += 'GCN encoder type: {}\n'.format(eval_config.GCN.TYPE)
-    eval_info += 'Fusion method: {}, decode global node: {}\n'.format(str(eval_config.FUSION_TYPE), str(eval_config.transformer.DECODE_GLOBAL_NODE))
-    eval_info += '===========================================\n'
+        eval_info = 'Evaluated ckpt: {}\n'.format(ckpt)
+        print('\n\033[0;33;40mEvaluated ckpt: {}\033[0m\n'.format(ckpt))
+        eval_info += '=========================================\n'
+        eval_info += 'Version Name: {} (evaluation seed: {})\n'.format(eval_config.VERSION, args.seed)
+        eval_info += 'Task config path: {}\n'.format(args.dataset)
+        eval_info += 'Runner: {}\n'.format(eval_config.runner)
+        eval_info += 'Policy: {}\n'.format(eval_config.POLICY)
+        eval_info += 'Num params: {}\n'.format(sum(param.numel() for param in runner.parameters()))
+        eval_info += 'Difficulty: {}\n'.format(eval_config.DIFFICULTY)
+        eval_info += 'Stop action: {}\n'.format('True' if eval_config.ACTION_DIM==4 else 'False')
+        eval_info += 'Env gloabl node mode: {}'.format(eval_config.GCN.ENV_GLOBAL_NODE_MODE)
+        if eval_config.GCN.ENV_GLOBAL_NODE_MODE != "unavailable":
+            eval_info += ', link percentage: {}, random_replace: {}'.format(str(eval_config.GCN.ENV_GLOBAL_NODE_LINK_RANGE), str(eval_config.GCN.RANDOM_REPLACE))
+
+        if eval_config.memory.FORGET:
+            num_forgotten_nodes = "{}%".format(int(100 * eval_config.memory.RANK_THRESHOLD)) if eval_config.memory.RANK_THRESHOLD < 1 else "{}".format(int(eval_config.memory.RANK_THRESHOLD))
+            eval_info += '\nForgetting: {} \n\t Start forgetting after {} nodes are collected\n\t'.format(str(eval_config.memory.FORGET), eval_config.memory.TOLERANCE)
+
+            if eval_config.memory.RANDOM_SELECT:
+                eval_info += 'Randomly forgetting {} nodes\n'.format(num_forgotten_nodes)
+            else:
+                if eval_config.memory.RANK == 'bottom':
+                    eval_info += 'Nodes in the bottom {} will be forgotten\n'.format(num_forgotten_nodes)
+                elif eval_config.memory.RANK == 'top':
+                    eval_info += 'Nodes in the top {} will be remembered\n'.format(num_forgotten_nodes)
+            
+            eval_info += '\t Forgetting according to {} attention scores\n'.format(eval_config.memory.FORGETTING_ATTN)
+        else:
+            eval_info += '\nForgetting: False\n'
+        eval_info += 'GCN encoder type: {}\n'.format(eval_config.GCN.TYPE)
+        eval_info += 'Fusion method: {}, decode global node: {}\n'.format(str(eval_config.FUSION_TYPE), str(eval_config.transformer.DECODE_GLOBAL_NODE))
+        eval_info += '===========================================\n'
     
     print(eval_info)
 
@@ -435,6 +442,7 @@ def evaluate(eval_config, ckpt):
 
                 # Forget some less important nodes
                 # att_scores is a dict {'goal_attn': 1 x num_nodes, 'curr_attn': 1 x num_nodes, 'GAT_attn'}
+                forget_node_indices = None
                 if args.forget:
                     forget_node_indices = env.forget_node(
                         att_scores[attn_choice],

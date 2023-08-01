@@ -567,7 +567,7 @@ class SearchEnv(RLEnv):
             img = self.render_detailed_traj(info) # (310, 575, 3)
 
         elif record in [2,4]:
-            img = self.render_simple_traj()
+            img = self.render_simple_traj(render_traj=True)
         
         top_down_map = None
         if record in [3,4] and att_features is not None:

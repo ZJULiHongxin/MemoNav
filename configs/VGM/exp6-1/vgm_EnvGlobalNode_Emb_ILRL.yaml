@@ -6,7 +6,7 @@ IL_TRAINER_NAME: "BC_trainer"
 RL_TRAINER_NAME: "PPOTrainer_Memory_aux"
 ENV_NAME: "SearchEnv"
 
-SIMULATOR_GPU_ID: 0
+SIMULATOR_GPU_ID: 3
 TORCH_GPU_ID: 3
 
 NUM_PROCESSES: 4
@@ -44,5 +44,5 @@ RL:
     num_mini_batch: 2
     num_steps: 256
     rl_pretrained: False
-    il_pretrained: False
-    pretrained_weights: "./data/new_checkpoints/vgm_RL/ckpt.15.pth"
+    il_pretrained: True
+    pretrained_weights: "./data/new_checkpoints/vgm_EnvGlobalNode_Emb_ILRL_IL/epoch0023iter20000.pt"

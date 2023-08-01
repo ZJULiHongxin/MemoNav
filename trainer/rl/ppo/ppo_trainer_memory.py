@@ -56,7 +56,7 @@ class PPOTrainer_Memory(BaseRLTrainer):
         
         # forgetting mechanism
         self.expire_forget = config.memory.FORGET and config.memory.FORGETTING_TYPE[0].lower() == 'e'
-        self.simple_forget = config.memory.FORGET and "simple" in config.memory.FORGETTING_TYPE and config.memory.TRAINIG_FORGET
+        self.simple_forget = config.memory.FORGET and "simple" in config.memory.FORGETTING_TYPE and config.memory.TRAINING_FORGET
         self.att_type = "goal_attn"
         if "cur" in config.memory.FORGETTING_ATTN.lower():
             self.att_type = "curr_attn"

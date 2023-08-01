@@ -6,8 +6,8 @@ IL_TRAINER_NAME: "BC_trainer"
 RL_TRAINER_NAME: "PPOTrainer_Memory_aux"
 ENV_NAME: "SearchEnv"
 
-SIMULATOR_GPU_ID: 0
-TORCH_GPU_ID: 0
+SIMULATOR_GPU_ID: 1
+TORCH_GPU_ID: 1
 
 NUM_PROCESSES: 4
 NUM_VAL_PROCESSES: 0
@@ -44,6 +44,6 @@ RL:
     num_mini_batch: 2
     num_steps: 256
     hidden_size: 512
-    rl_pretrained: False
+    rl_pretrained: True
     il_pretrained: False
-    pretrained_weights: "./data/new_checkpoints/CNNLSTM_IL/epoch0019iter17000.pt"
+    pretrained_weights: "./data/new_checkpoints/CNNLSTM_seed2_RL/ckpt0_frame1024.pth"
