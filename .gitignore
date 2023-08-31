@@ -2,4 +2,5 @@
 IL_data/*
 data/*
 eval_results/*
-
+VGM_ILRL/pth
+image-goal-nav-dataset/*
