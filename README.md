@@ -7,7 +7,11 @@
 This repository is the official implementation of [MemoNav](https://arxiv.org/abs/2402.19161). 
 
 
-![Model overview](./assets/MemoNav_pipeline.png)
+<p align="center">
+<img src="assets/icon.png" width="75%">
+<br>
+<b>MemoNav Icon</b>
+</p>
 
 ## Requirements
 The source code is developed and tested in the following setting. 
@@ -63,6 +67,20 @@ This repo
           └── 3goal
       
 ```
+
+## MemoNav Pipeline
+![Model overview](./assets/MemoNav_pipeline.png)
+
+We employ three types of navigation
+memory. The node features on a map are stored in **the short-term
+memory (STM)**, as these features are dynamically updated.
+A forgetting module then retains the informative
+STM fraction to increase efficiency. We also introduce **long-term
+memory (LTM)** to learn global scene representations
+by progressively aggregating STM features. Subsequently, a
+graph attention module encodes the retained STM and the
+LTM to generate **working memory (WM)** which contains the
+scene features essential for efficient navigation.
 
 ## Results
 
