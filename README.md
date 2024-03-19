@@ -85,7 +85,7 @@ We collected multi-goal test datasets in the Gibson scenes by randomly sample tr
 | MemoNav (ours)   |     50.8         |      20.1       | 38.0 | 9.0 | 28.9 | 5.1 |
 
 ### MP3d multi-goal test dataset
-We collected multi-goal test datasets in the MP3D scenes by converting the Multi-ON dataset.
+We collected multi-goal test datasets in the MP3D scenes by converting the [Multi-ON dataset](https://shivanshpatel35.github.io/multi-ON/).
 
 | Model name         | 1goal SR  | 1goal SPL | 2goal PR  | 2goal PPL | 3goal PR  | 3goal PPL |
 | ------------------ |---------------- | -------------- |---------------- | -------------- |---------------- | -------------- |
