@@ -8,8 +8,8 @@ This repository is the official implementation of [MemoNav](https://arxiv.org/ab
 ## Requirements
 The source code is developed and tested in the following setting. 
 - Python 3.7
-- pytorch 1.7.1
-- habitat-sim 0.2.0
+- pytorch 1.11.0+cu102
+- habitat-sim 0.2.1
 - habitat 0.2.1
 
 Please refer to [habitat-sim](https://github.com/facebookresearch/habitat-sim.git) and [habitat-lab](https://github.com/facebookresearch/habitat-lab.git) for installation instructions.
@@ -20,7 +20,7 @@ To install requirements:
 pip install -r requirements.txt
 ```
 
-## Habitat Data Setup
+## Data Setup
 The scene datasets and task datasets used for training should be organized in the habitat-lab directory as follows:
 ```
 habitat-api (or habitat-lab)
@@ -41,64 +41,25 @@ The single and multi-goal train/val/test datasets should be organized as follows
 This repo
   └── image-goal-nav-dataset
       |
-      └── train
-      └── test
-      |  └── 1goal
-      |  └── 2goal
-      |  └── 3goal
-      └── val
-        └── 1goal
-        │   └── *.json.gz
-        └── 2goal
-        │   └── *.json.gz
-        └── 3goal
-        │   └── *.json.gz
-        └── 4goal
-            └── *.json.gz
+      └── gibson
+      |  └── train
+      |  └── multi_goal_val
+      |      └── 1goal
+      |      │   └── *.json.gz
+      |      └── 2goal
+      |      │   └── *.json.gz
+      |      └── 3goal
+      |      │   └── *.json.gz
+      |      └── 4goal
+      |          └── *.json.gz
+      |  
+      └── mp3d/test
+          └── 1goal
+          └── 2goal
+          └── 3goal
       
 ```
 
-## Training
-The MemoNav is trained for two phases as the VGM. We first train the agent using imitation learning, minimizing the negative log-likelihood of the ground-truth actions. Next, we finetune the agent’s policy with proximal policy optimization (PPO) to improve the exploratory ability of the agent.
-
-### Imitation Learning
-To train the model(s) in the paper via IL, run this command:
-
-```train
-python train_bc.py --config  ./configs/GATv2_EnvGlobalNode_Respawn_ILRL.yaml --stop
-```
-
-### Reinforcement Learning
-To fintune the model(s) via RL, run this command:
-
-```train
-python train_rl.py --config  ./configs/GATv2_EnvGlobalNode_Respawn_ILRL.yaml --stop --diff hard
-```
-
-## Evaluation
-
-To evaluate the model on the single-goal dataset, run:
-
-```eval
-python evaluate_dataset.py  --config ./configs/GATv2_EnvGlobalNode_Respawn_ILRL.yaml  --eval-ckpt ./data/new_checkpoints/GATv2_EnvGlobalNode_Respawn_ILRL_RL/*.pth --stop --diff hard --gpu 0,0 --forget --version <exp_name>
-
-```
-
-To evaluate the model on the multi-goal dataset, run:
-
-```eval
-python evaluate_dataset.py  --config ./configs/GATv2_EnvGlobalNode_Respawn_ILRL.yaml  --eval-ckpt ./data/new_checkpoints/GATv2_EnvGlobalNode_Respawn_ILRL_RL/*.pth --stop --diff 3goal --gpu 0,0 --forget --version <exp_name>
-
-```
-
-
-## Pre-trained Models
-
-You can download pretrained models here:
-
-- [Memonav model](https://zjueducn-my.sharepoint.com/:u:/g/personal/hongxin_li_zju_edu_cn/EVHGjFj4db9GiblAcCrTh1kBF78FpMW2-X7HUHrGsmXOZg?e=DSPnb5) trained on Gibson scene datasets. 
-
->📋  Give a link to where/how the pretrained models can be downloaded and how they were trained (if applicable).  Alternatively you can have an additional column in your results table with a link to the models.
 ## Results
 
 Our model achieves the following performance on:
@@ -108,21 +69,24 @@ Following the experiemntal settings in VGM, our MemoNav model was tested on 1007
 
 | Model name         | SR  | SPL |
 | ------------------ |---------------- | -------------- |
-| ANS   |     0.30         |      0.11       |
-| Exp4nav   |     0.47         |      0.39       |
-| SMT   |     0.56         |      0.40       |
-| Neural Planner   |     0.42         |      0.27       |
-| NTS   |     0.43         |      0.26       |
-| VGM   |     0.75         |      0.58       |
-| MemoNav (ours)   |     0.78         |      0.54       |
+| VGM   |     70.0         |      55.4       |
+| MemoNav (ours)   |     74.7         |      57.9       |
 
-### [Gibson multi-goal test dataset](https://github.com/facebookresearch/image-goal-nav-dataset)
-We compared our model with VGM on multi-goal test datasets which can be downloaded [here](https://zjueducn-my.sharepoint.com/:u:/g/personal/hongxin_li_zju_edu_cn/EV8yJjE4PZRFjspQRUuK8SUBitWymCw7GCj-rMiWOCI18Q?e=FAGIHY).
+### Gibson multi-goal test dataset
+We collected multi-goal test datasets in the Gibson scenes by randomly sample trajectories according to the rules specified in our paper.
 
 | Model name         | 2goal PR  | 2goal PPL | 3goal PR  | 3goal PPL | 4goal PR  | 4goal PPL |
 | ------------------ |---------------- | -------------- |---------------- | -------------- |---------------- | -------------- |
-| VGM   |     0.45        |      0.18       | 0.33 | 0.08 | 0.28 | 0.05 |
-| MemoNav (ours)   |     0.50         |      0.17       | 0.42 | 0.09 | 0.31 | 0.05 |
+| VGM   |     42.9        |      17.1       | 29.5 | 7.0 | 21.5 | 4.1 |
+| MemoNav (ours)   |     50.8         |      20.1       | 38.0 | 9.0 | 28.9 | 5.1 |
+
+### MP3d multi-goal test dataset
+We collected multi-goal test datasets in the MP3D scenes by converting the Multi-ON dataset.
+
+| Model name         | 1goal SR  | 1goal SPL | 2goal PR  | 2goal PPL | 3goal PR  | 3goal PPL |
+| ------------------ |---------------- | -------------- |---------------- | -------------- |---------------- | -------------- |
+| VGM   |     25.1       |      16.6      | 16.7 | 5.0 | 11.8 | 2.5 |
+| MemoNav (ours)   |     26.1         |      16.3       | 19.5 | 5.6 | 13.6 | 2.9 |
 
 ### Visualizations
 
@@ -141,3 +105,16 @@ https://user-images.githubusercontent.com/49870114/175005441-871eb72c-a938-4086-
 
 
 https://user-images.githubusercontent.com/49870114/175005452-cb3f720d-4143-4000-a673-b4172945fdb3.mp4
+
+# Citation
+If you use the MemoNav agent and dataset, feel free to cite us.
+
+```bibtex
+@inproceedings{
+li2024memonav,
+title={MemoNav: Working Memory Model for Visual Navigation},
+author={Hongxin Li, Zeyu Wang, Xu Yang, Yuran Yang, Shuqi Mei, Zhaoxiang Zhang},
+booktitle={Conference on Computer Vision and Pattern Recognition 2024},
+year={2024},
+url={https://openreview.net/forum?id=lAdZBDL8aG}
+}
