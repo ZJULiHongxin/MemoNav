@@ -1,4 +1,8 @@
-# MemoNav: Working Memory Model for Visual Navigation
+**SheetCopilot**: Working Memory Model for Visual Navigation
+========
+
+[![arXiv](https://img.shields.io/badge/arXiv-2402.19161-b31b1b.svg)](http://arxiv.org/abs/2402.19161) 
+[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://GitHub.com/Naereen/StrapDown.js/graphs/commit-activity) 
 
 This repository is the official implementation of [MemoNav](https://arxiv.org/abs/2402.19161). 
 
