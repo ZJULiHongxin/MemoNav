@@ -1,9 +1,9 @@
-# MemoNav: Selecting Informative Memories for Visual Navigation
+# MemoNav: Working Memory Model for Visual Navigation
 
-This repository is the official implementation of [MemoNav](https://arxiv.org/abs/2030.12345). 
+This repository is the official implementation of [MemoNav](https://arxiv.org/abs/2402.19161). 
 
 
-![Model overview](./assets/Main_Model.png)
+![Model overview](./assets/MemoNav_pipeline.png)
 
 ## Requirements
 The source code is developed and tested in the following setting. 
