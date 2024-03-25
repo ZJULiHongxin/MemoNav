@@ -132,11 +132,9 @@ https://user-images.githubusercontent.com/49870114/175005452-cb3f720d-4143-4000-
 If you use the MemoNav agent and dataset, feel free to cite us.
 
 ```bibtex
-@inproceedings{
-li2024memonav,
+@inproceedings{li2024memonav,
 title={MemoNav: Working Memory Model for Visual Navigation},
-author={Hongxin Li, Zeyu Wang, Xu Yang, Yuran Yang, Shuqi Mei, Zhaoxiang Zhang},
-booktitle={Conference on Computer Vision and Pattern Recognition 2024},
-year={2024},
-url={https://openreview.net/forum?id=lAdZBDL8aG}
+author={Li, Hongxin and Wang, Zeyu and Yang, Xu and Yang, Yuran and Mei, Shuqi and Zhang, Zhaoxiang},
+booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+year={2024}
 }
