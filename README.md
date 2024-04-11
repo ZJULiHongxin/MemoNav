@@ -13,6 +13,10 @@ This repository is the official implementation of [MemoNav](https://arxiv.org/ab
 <b>MemoNav Icon</b>
 </p>
 
+## TODO
+- Upload MemoNav training code
+- Uplaod evaluation code
+
 ## Requirements
 The source code is developed and tested in the following setting. 
 - Python 3.7
